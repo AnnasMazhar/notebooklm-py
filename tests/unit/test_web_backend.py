@@ -58,6 +58,12 @@ from notebooklm._records import (
     ARTIFACT_REVISE_SLIDE_DEF,
     ARTIFACT_SUGGEST_REPORTS_DEF,
     ARTIFACT_WAIT_DEF,
+    CHAT_ASK_DEF,
+    CHAT_CONFIGURE_DEF,
+    CHAT_DELETE_HISTORY_DEF,
+    CHAT_GET_CONVERSATION_DEF,
+    CHAT_GET_HISTORY_DEF,
+    CHAT_SAVE_NOTE_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -161,6 +167,8 @@ from notebooklm._web.registry import (
 from notebooklm.exceptions import (
     ArtifactFeatureUnavailableError,
     AuthError,
+    ChatError,
+    ChatResponseParseError,
     ClientError,
     DecodingError,
     IdempotencyVariantError,
@@ -293,6 +301,12 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SOURCE_CHECK_FRESHNESS,
         Operation.SOURCE_GET_GUIDE,
         Operation.SOURCE_GET_FULLTEXT,
+        Operation.CHAT_ASK,
+        Operation.CHAT_GET_CONVERSATION,
+        Operation.CHAT_GET_HISTORY,
+        Operation.CHAT_DELETE_HISTORY,
+        Operation.CHAT_CONFIGURE,
+        Operation.CHAT_SAVE_NOTE,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -370,6 +384,12 @@ def test_registry_is_closed_and_exposes_only_reviewed_live_handlers() -> None:
         Operation.SOURCE_CHECK_FRESHNESS: SOURCE_CHECK_FRESHNESS_DEF,
         Operation.SOURCE_GET_GUIDE: SOURCE_GET_GUIDE_DEF,
         Operation.SOURCE_GET_FULLTEXT: SOURCE_GET_FULLTEXT_DEF,
+        Operation.CHAT_ASK: CHAT_ASK_DEF,
+        Operation.CHAT_GET_CONVERSATION: CHAT_GET_CONVERSATION_DEF,
+        Operation.CHAT_GET_HISTORY: CHAT_GET_HISTORY_DEF,
+        Operation.CHAT_DELETE_HISTORY: CHAT_DELETE_HISTORY_DEF,
+        Operation.CHAT_CONFIGURE: CHAT_CONFIGURE_DEF,
+        Operation.CHAT_SAVE_NOTE: CHAT_SAVE_NOTE_DEF,
     }
     assert Operation.RESEARCH_WAIT not in WEB_SUPPORTED_OPERATIONS
     assert Operation.RESEARCH_IMPORT_VERIFY not in WEB_SUPPORTED_OPERATIONS
@@ -1786,6 +1806,8 @@ async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
     ("error", "reason", "specific_diagnostics"),
     [
         (AuthError("auth"), BackendErrorReason.AUTH, {"recoverable": False}),
+        (ChatError("chat"), BackendErrorReason.CHAT, {}),
+        (ChatResponseParseError("parse"), BackendErrorReason.CHAT_RESPONSE_PARSE, {}),
         (
             ClientError("client", status_code=404, rpc_code=5),
             BackendErrorReason.CLIENT,
@@ -1827,7 +1849,7 @@ async def test_rpc_error_is_translated_with_scrubbed_diagnostics() -> None:
     ],
 )
 def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
-    error: RPCError | NetworkError,
+    error: RPCError | NetworkError | ChatError,
     reason: BackendErrorReason,
     specific_diagnostics: dict[str, object],
 ) -> None:
@@ -1839,6 +1861,8 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         type(error)
         is {
             BackendErrorReason.AUTH: AuthError,
+            BackendErrorReason.CHAT: ChatError,
+            BackendErrorReason.CHAT_RESPONSE_PARSE: ChatResponseParseError,
             BackendErrorReason.CLIENT: ClientError,
             BackendErrorReason.DECODING: DecodingError,
             BackendErrorReason.NETWORK: NetworkError,
@@ -1854,6 +1878,8 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE,
         BackendErrorReason.AUTH,
         BackendErrorReason.ARTIFACT_NOT_FOUND,
+        BackendErrorReason.CHAT,
+        BackendErrorReason.CHAT_RESPONSE_PARSE,
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,
         BackendErrorReason.IDEMPOTENCY_VARIANT,
@@ -1876,7 +1902,10 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
     assert {
         name: translated.diagnostics[name] for name in specific_diagnostics
     } == specific_diagnostics
-    assert isinstance(translated.diagnostics["public_error_failure"], SourceAddFailureRecord)
+    if isinstance(error, (RPCError, NetworkError)):
+        assert isinstance(translated.diagnostics["public_error_failure"], SourceAddFailureRecord)
+    else:
+        assert "public_error_failure" not in translated.diagnostics
 
 
 def test_translated_server_error_preserves_http_status_cause() -> None:
@@ -2152,6 +2181,7 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_sources.py",
         package / "_suggestion_service.py",
         package / "_source_service.py",
+        package / "_chat" / "service.py",
     }
     allowed.update((package / "_studio").rglob("*.py"))
     allowed.update((package / "_web").rglob("*.py"))

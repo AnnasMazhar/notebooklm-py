@@ -1,15 +1,9 @@
-"""Unit tests for the ``_chat.notes`` module (Phase 6, ADR-0013).
+"""Codec/binding tests for the migrated saved-from-chat operation.
 
 The encoder is tested separately in
 ``tests/unit/test_save_chat_as_note_encoder.py``. The tests here pin
-the behaviour of ``save_chat_answer_as_note`` itself — the thin RPC
-wrapper that builds params, dispatches via the injected
-:class:`SaveChatNoteRpc`, parses the response, and surfaces the
-constructed :class:`Note`.
-
-The Phase 6 split made this function reachable independently of any
-``ChatAPI`` instance, which is why we test it here rather than
-folding everything into ``test_chat_save_answer_as_note.py``.
+the typed backend binding: it encodes the seven-element variant and returns a
+neutral record before the compatibility projector constructs ``Note``.
 """
 
 from __future__ import annotations
@@ -18,10 +12,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from notebooklm._chat.notes import save_chat_answer_as_note
+from notebooklm._projectors import chat_reference_record, project_chat_saved_note
+from notebooklm._records import CHAT_SAVE_NOTE_DEF, ChatSaveNoteInput
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import ChatReference
 from tests._fixtures.fake_core import FakeSession, make_fake_core
+from tests._fixtures.web_backend import build_web_backend
 
 
 def _make_refs(n: int = 1) -> list[ChatReference]:
@@ -54,7 +50,7 @@ class TestSaveChatAnswerAsNote:
     @pytest.mark.asyncio
     async def test_dispatches_create_note_with_seven_element_params(self, rpc: FakeSession) -> None:
         rpc.rpc_call.return_value = [["note-id", "x", [2, "u", [1, 2]], [[]], "ServerTitle", []]]
-        await save_chat_answer_as_note(rpc, "nb-1", "X [1].", _make_refs(), "Title")
+        await _save_chat_answer_as_note(rpc, "nb-1", "X [1].", _make_refs(), "Title")
         rpc.rpc_call.assert_awaited_once()
         method, params = rpc.rpc_call.call_args[0][0], rpc.rpc_call.call_args[0][1]
         assert method == RPCMethod.CREATE_NOTE
@@ -70,7 +66,9 @@ class TestSaveChatAnswerAsNote:
     @pytest.mark.asyncio
     async def test_parses_wrapped_response_shape(self, rpc: FakeSession) -> None:
         rpc.rpc_call.return_value = [["note-abc", "ignored", [2], [[]], "ServerTitle", []]]
-        note = await save_chat_answer_as_note(rpc, "nb-1", "answer [1].", _make_refs(), "Requested")
+        note = await _save_chat_answer_as_note(
+            rpc, "nb-1", "answer [1].", _make_refs(), "Requested"
+        )
         assert note.id == "note-abc"
         assert note.title == "ServerTitle"
         assert note.notebook_id == "nb-1"
@@ -87,7 +85,9 @@ class TestSaveChatAnswerAsNote:
             "FlatServerTitle",
             [],
         ]
-        note = await save_chat_answer_as_note(rpc, "nb-1", "answer [1].", _make_refs(), "Requested")
+        note = await _save_chat_answer_as_note(
+            rpc, "nb-1", "answer [1].", _make_refs(), "Requested"
+        )
         assert note.id == "note-flat"
         assert note.title == "FlatServerTitle"
 
@@ -97,18 +97,41 @@ class TestSaveChatAnswerAsNote:
     ) -> None:
         # Note row has fewer than 5 slots — server title slot is absent.
         rpc.rpc_call.return_value = [["note-id", "x", [2]]]
-        note = await save_chat_answer_as_note(rpc, "nb-1", "answer [1].", _make_refs(), "Requested")
+        note = await _save_chat_answer_as_note(
+            rpc, "nb-1", "answer [1].", _make_refs(), "Requested"
+        )
         assert note.title == "Requested"
 
     @pytest.mark.asyncio
     async def test_missing_note_id_raises_runtime_error(self, rpc: FakeSession) -> None:
         rpc.rpc_call.return_value = [None, "x", [], [], "T", []]
         with pytest.raises(RuntimeError, match="no note ID"):
-            await save_chat_answer_as_note(rpc, "nb-1", "answer [1].", _make_refs(), "T")
+            await _save_chat_answer_as_note(rpc, "nb-1", "answer [1].", _make_refs(), "T")
 
     @pytest.mark.asyncio
     async def test_empty_references_raises_value_error(self, rpc: FakeSession) -> None:
         with pytest.raises(ValueError, match="non-empty"):
-            await save_chat_answer_as_note(rpc, "nb-1", "answer", [], "T")
+            await _save_chat_answer_as_note(rpc, "nb-1", "answer", [], "T")
         # The encoder rejects the call before any RPC dispatch happens.
         rpc.rpc_call.assert_not_called()
+
+
+async def _save_chat_answer_as_note(
+    rpc: FakeSession,
+    notebook_id: str,
+    answer: str,
+    references: list[ChatReference],
+    title: str,
+):
+    backend = build_web_backend(rpc)
+    result = await backend.invoke(
+        CHAT_SAVE_NOTE_DEF,
+        ChatSaveNoteInput(
+            notebook_id=notebook_id,
+            answer=answer,
+            references=tuple(chat_reference_record(reference) for reference in references),
+            title=title,
+        ),
+        deadline=None,
+    )
+    return project_chat_saved_note(result.note)

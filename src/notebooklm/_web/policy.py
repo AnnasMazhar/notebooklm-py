@@ -212,6 +212,70 @@ WEB_CALL_POLICY_BINDINGS: Final[Mapping[Operation, WebCallPolicyBinding]] = Mapp
             CallPolicy.READ,
             (_native(RPCMethod.GET_SOURCE, _IDEMPOTENT, "source content read"),),
         ),
+        Operation.CHAT_ASK: WebCallPolicyBinding(
+            CallPolicy.STREAM,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "default source-set read"),
+                _native(
+                    RPCMethod.GET_LAST_CONVERSATION_ID,
+                    _IDEMPOTENT,
+                    "conversation resolution before or after the streamed request",
+                ),
+            ),
+        ),
+        Operation.CHAT_GET_CONVERSATION: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (
+                _native(
+                    RPCMethod.GET_LAST_CONVERSATION_ID,
+                    _IDEMPOTENT,
+                    "most-recent conversation read",
+                ),
+            ),
+        ),
+        Operation.CHAT_GET_HISTORY: WebCallPolicyBinding(
+            CallPolicy.READ,
+            (
+                _native(
+                    RPCMethod.GET_LAST_CONVERSATION_ID,
+                    _IDEMPOTENT,
+                    "optional most-recent conversation resolution",
+                ),
+                _native(
+                    RPCMethod.GET_CONVERSATION_TURNS,
+                    _IDEMPOTENT,
+                    "conversation-turn collection read",
+                ),
+            ),
+        ),
+        Operation.CHAT_DELETE_HISTORY: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.DELETE_CONVERSATION,
+                    _IDEMPOTENT,
+                    "idempotent conversation-turn delete",
+                ),
+            ),
+        ),
+        Operation.CHAT_CONFIGURE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(RPCMethod.GET_NOTEBOOK, _IDEMPOTENT, "chat-settings read"),
+                _native(RPCMethod.RENAME_NOTEBOOK, _IDEMPOTENT, "chat-settings set-op"),
+            ),
+        ),
+        Operation.CHAT_SAVE_NOTE: WebCallPolicyBinding(
+            CallPolicy.MUTATION,
+            (
+                _native(
+                    RPCMethod.CREATE_NOTE,
+                    _NO_RETRY,
+                    "non-idempotent citation-rich note allocation",
+                    variant="saved_from_chat",
+                ),
+            ),
+        ),
         Operation.LABEL_LIST: WebCallPolicyBinding(
             CallPolicy.READ,
             (_native(RPCMethod.LIST_LABELS, _IDEMPOTENT, "source-label collection read"),),

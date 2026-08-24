@@ -52,7 +52,6 @@ from .._row_adapters.sources import interpret_source_freshness
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
 from .._source.batch import SourceBatchAddService
 from .._source.content import SourceContentRenderer
-from .._source.drive_import import DriveFetcher, DriveImportService
 from .._source.listing import SourceLister
 from .._source.polling import SourcePoller
 from .._source.upload_payloads import build_rename_source_params
@@ -461,13 +460,7 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                     "Drive source.add_file input lacks document_id",
                     operation=Operation.SOURCE_ADD_FILE,
                 )
-            service = DriveImportService(
-                fetch=DriveFetcher(
-                    cookies_provider=uploader.live_cookies,
-                    authuser=uploader.authuser_value(),
-                ),
-                add_file=uploader.add_file,
-            )
+            service = uploader.create_drive_import_service()
             async with uploader.get_download_semaphore():
                 source = await service.add_drive_file(
                     value.notebook_id,

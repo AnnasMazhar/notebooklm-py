@@ -232,7 +232,6 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
     sites = catalog.collect_native_execution_sites()
 
     assert sites[(RPCMethod.GET_NOTEBOOK, None)] == [
-        "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
         "_web/backend.py:WebRpcBackend._mind_map_generate_interactive",
@@ -241,6 +240,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
+        "_web/chat.py:ChatWebHandlers._chat_configure",
         "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
         "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
         "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",

@@ -350,62 +350,8 @@
           ]
         },
         "field_path": "answer_document",
-        "private_model": "notebooklm._chat.api._PostedAsk",
+        "private_model": "notebooklm._records.ChatAskResultRecord",
         "public_model": "notebooklm._types.documents.StructuredDocument"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
-            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
-            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "next_steps[]",
-        "private_model": "notebooklm._chat.api._PostedAsk",
-        "public_model": "notebooklm.types.NextStepSuggestion"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
-            "mcp.ChatReference.nested-lite-projection",
-            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "references[]",
-        "private_model": "notebooklm._chat.api._PostedAsk",
-        "public_model": "notebooklm.types.ChatReference"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
-            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
-            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "turn_key",
-        "private_model": "notebooklm._chat.api._PostedAsk",
-        "public_model": "notebooklm.types.ConversationTurnKey"
       },
       {
         "allocation": {
@@ -421,133 +367,8 @@
           ]
         },
         "field_path": "answer_document",
-        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
+        "private_model": "notebooklm._records.ChatStreamAnswerRecord",
         "public_model": "notebooklm._types.documents.StructuredDocument"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
-            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
-            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "next_steps[]",
-        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
-        "public_model": "notebooklm.types.NextStepSuggestion"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
-            "mcp.ChatReference.nested-lite-projection",
-            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "references[]",
-        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
-        "public_model": "notebooklm.types.ChatReference"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
-            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
-            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "turn_key",
-        "private_model": "notebooklm._chat.wire.StreamingChatParseResult",
-        "public_model": "notebooklm.types.ConversationTurnKey"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
-            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
-            "rest.StructuredDocument.transitive-chat-reference-full-contribution"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "document",
-        "private_model": "notebooklm._chat.wire._ChunkExtraction",
-        "public_model": "notebooklm._types.documents.StructuredDocument"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
-            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
-            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "next_steps[]",
-        "private_model": "notebooklm._chat.wire._ChunkExtraction",
-        "public_model": "notebooklm.types.NextStepSuggestion"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
-            "mcp.ChatReference.nested-lite-projection",
-            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "references[]",
-        "private_model": "notebooklm._chat.wire._ChunkExtraction",
-        "public_model": "notebooklm.types.ChatReference"
-      },
-      {
-        "allocation": {
-          "projection_ids": [
-            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
-            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
-            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
-            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
-          ],
-          "terminal_locators": [
-            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
-            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
-            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
-          ]
-        },
-        "field_path": "turn_key",
-        "private_model": "notebooklm._chat.wire._ChunkExtraction",
-        "public_model": "notebooklm.types.ConversationTurnKey"
       },
       {
         "allocation": {
@@ -674,6 +495,148 @@
         "field_path": "fulltext.document",
         "private_model": "notebooklm._source_records.SourceFulltextResult",
         "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "rest.StructuredDocument.transitive-chat-reference-full-contribution"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "answer_document",
+        "private_model": "notebooklm._web.codec.chat_stream.StreamingChatParseResult",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
+            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "next_steps[]",
+        "private_model": "notebooklm._web.codec.chat_stream.StreamingChatParseResult",
+        "public_model": "notebooklm.types.NextStepSuggestion"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
+            "mcp.ChatReference.nested-lite-projection",
+            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "references[]",
+        "private_model": "notebooklm._web.codec.chat_stream.StreamingChatParseResult",
+        "public_model": "notebooklm.types.ChatReference"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
+            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "turn_key",
+        "private_model": "notebooklm._web.codec.chat_stream.StreamingChatParseResult",
+        "public_model": "notebooklm.types.ConversationTurnKey"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.StructuredDocument.transitive-chat-reference-full-contribution",
+            "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
+            "rest.StructuredDocument.transitive-chat-reference-full-contribution"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "document",
+        "private_model": "notebooklm._web.codec.chat_stream._ChunkExtraction",
+        "public_model": "notebooklm._types.documents.StructuredDocument"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-next_steps-NextStepSuggestion",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-next_steps-NextStepSuggestion",
+            "rest.AskResult.app-view-ask-result-view.nested-next_steps-NextStepSuggestion"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "next_steps[]",
+        "private_model": "notebooklm._web.codec.chat_stream._ChunkExtraction",
+        "public_model": "notebooklm.types.NextStepSuggestion"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-references-ChatReference",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-references-ChatReference",
+            "mcp.ChatReference.nested-lite-projection",
+            "rest.AskResult.app-view-ask-result-view.nested-references-ChatReference"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "references[]",
+        "private_model": "notebooklm._web.codec.chat_stream._ChunkExtraction",
+        "public_model": "notebooklm.types.ChatReference"
+      },
+      {
+        "allocation": {
+          "projection_ids": [
+            "cli.AskResult.app-view-cli-final-with-note-outcome.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-lite-references.nested-turn_key-ConversationTurnKey",
+            "mcp.AskResult.app-view-mcp-final-full-references.nested-turn_key-ConversationTurnKey",
+            "rest.AskResult.app-view-ask-result-view.nested-turn_key-ConversationTurnKey"
+          ],
+          "terminal_locators": [
+            "cli --json|notebooklm/cli/chat_cmd.py|register_chat_commands.ask_cmd._run|json_output_response|1",
+            "mcp tool result|notebooklm/mcp/tools/chat.py|register.chat_ask|return|1",
+            "rest response|notebooklm/server/routes/chat.py|ask|return|1"
+          ]
+        },
+        "field_path": "turn_key",
+        "private_model": "notebooklm._web.codec.chat_stream._ChunkExtraction",
+        "public_model": "notebooklm.types.ConversationTurnKey"
       },
       {
         "allocation": {
@@ -7191,11 +7154,11 @@
           {
             "contribution_semantics": "DocumentAnnotation object_id joins the citation and its offsets become answer_anchor_start/end",
             "evidence": [
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
             },
             "id": "cli.DocumentAnnotation.transitive-chat-reference-full-contribution",
@@ -7250,13 +7213,13 @@
           {
             "contribution_semantics": "DocumentBlock ranges produce fragment_start/end and its span-derived text produces cited_text; answer-document blocks also bound anchor validity",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
             },
             "id": "cli.DocumentBlock.transitive-chat-reference-full-contribution",
@@ -7311,11 +7274,11 @@
           {
             "contribution_semantics": "StructuredDocument.annotations selects the matching anchor and text/extent derived from blocks validates its range, producing answer_anchor_start/end; answer_document itself is removed from the CLI envelope",
             "evidence": [
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
             },
             "id": "cli.StructuredDocument.transitive-chat-reference-full-contribution",
@@ -7369,13 +7332,13 @@
           {
             "contribution_semantics": "TextSpan offsets/text build DocumentBlock.text and StructuredDocument.text, thereby producing cited_text/ranges or validating answer anchors",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)": "sha256:ed367425dcb5320da49dde3724bbb8c5de788ae459f459299b1722080341f9a3"
             },
             "id": "cli.TextSpan.transitive-chat-reference-full-contribution",
@@ -10706,11 +10669,11 @@
           {
             "contribution_semantics": "DocumentAnnotation object_id joins the citation and its offsets become answer_anchor_start/end",
             "evidence": [
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
             },
             "id": "mcp.DocumentAnnotation.transitive-chat-reference-full-contribution",
@@ -10767,13 +10730,13 @@
           {
             "contribution_semantics": "DocumentBlock ranges/text produce cited_text and fragment ranges, while answer-document blocks also bound anchor validity",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
             },
             "id": "mcp.DocumentBlock.transitive-chat-reference-full-contribution",
@@ -10826,11 +10789,11 @@
           {
             "contribution_semantics": "DocumentBlock span-derived text may survive as optional cited_text; all block range and answer-anchor fields are trimmed from lite references",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
               "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS": "sha256:685b3c5bed6d45d9d771b63785b518163e52a9591bf2f01a741ccc0501fa6efc"
             },
             "id": "mcp.DocumentBlock.transitive-chat-reference-lite-fragment-contribution",
@@ -10879,11 +10842,11 @@
           {
             "contribution_semantics": "StructuredDocument annotations and block-derived text/extent produce answer_anchor_start/end; answer_document itself is removed from the tool result",
             "evidence": [
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
             },
             "id": "mcp.StructuredDocument.transitive-chat-reference-full-contribution",
@@ -10939,13 +10902,13 @@
           {
             "contribution_semantics": "TextSpan offsets/text build cited_text/ranges or answer-document text used to validate answer anchors",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/mcp/tools/chat.py:payload.update(ask_payload)": "sha256:3c81926f628e07b7b2ad79589012f2b9fe384fc4e9dbb53480c0dabc1da5317b"
             },
             "id": "mcp.TextSpan.transitive-chat-reference-full-contribution",
@@ -10998,11 +10961,11 @@
           {
             "contribution_semantics": "TextSpan text builds optional cited_text; span offsets and answer-anchor fields are trimmed from lite references",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
               "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/mcp/tools/chat.py:_LITE_REFERENCE_FIELDS": "sha256:685b3c5bed6d45d9d771b63785b518163e52a9591bf2f01a741ccc0501fa6efc"
             },
             "id": "mcp.TextSpan.transitive-chat-reference-lite-fragment-contribution",
@@ -14417,11 +14380,11 @@
           {
             "contribution_semantics": "DocumentAnnotation object_id joins the citation and its offsets become answer_anchor_start/end",
             "evidence": [
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
             },
             "id": "rest.DocumentAnnotation.transitive-chat-reference-full-contribution",
@@ -14468,13 +14431,13 @@
           {
             "contribution_semantics": "DocumentBlock ranges/text produce cited_text and fragment ranges, while answer-document blocks also bound anchor validity",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
             },
             "id": "rest.DocumentBlock.transitive-chat-reference-full-contribution",
@@ -14521,11 +14484,11 @@
           {
             "contribution_semantics": "StructuredDocument annotations and block-derived text/extent produce answer_anchor_start/end; answer_document itself is removed from the REST response",
             "evidence": [
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
             },
             "id": "rest.StructuredDocument.transitive-chat-reference-full-contribution",
@@ -14571,13 +14534,13 @@
           {
             "contribution_semantics": "TextSpan offsets/text build cited_text/ranges or answer-document text used to validate answer anchors",
             "evidence": [
-              "notebooklm/_chat/wire.py:def extract_text_passages",
-              "notebooklm/_chat/wire.py:def attach_answer_anchors",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)"
             ],
             "evidence_shape_fingerprints": {
-              "notebooklm/_chat/wire.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
-              "notebooklm/_chat/wire.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
+              "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors": "sha256:c14167e84ef43a5e6fb8a7d3b485d03b0354b6dda501181abfd58dcb66a42d6b",
+              "notebooklm/_web/codec/chat_stream.py:def extract_text_passages": "sha256:be0fdefcd8737fcb2a35d79e12624277f71ec853e899f8b99ab6506f4e814d54",
               "notebooklm/server/routes/chat.py:return ask_result_view(result)": "sha256:4e173952813e28db9e75e22e7e46ad0982c6620c4a03323fd8e74530b02517c4"
             },
             "id": "rest.TextSpan.transitive-chat-reference-full-contribution",

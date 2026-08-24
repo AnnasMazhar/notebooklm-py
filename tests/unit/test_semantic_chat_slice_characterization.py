@@ -37,12 +37,14 @@ import httpx
 import pytest
 
 from notebooklm._chat import ChatAPI
-from notebooklm._chat import api as chat_api
+from notebooklm._notebook_payloads import build_get_notebook_params
 from notebooklm._streaming_post import stream_post_with_size_cap
+from notebooklm._web.codec import chat as chat_codec
 from notebooklm.exceptions import ChatError, RPCResponseTooLargeError
 from notebooklm.rpc import ChatGoal, RPCMethod
 from notebooklm.types import AskResult, ChatMode
 from scripts import audit_operation_catalog as catalog
+from tests._fixtures.web_backend import build_web_backend
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -83,6 +85,19 @@ class _RpcRecorder:
         return self.calls.count(method)
 
 
+class _NotebookSources:
+    def __init__(self, rpc: _RpcRecorder) -> None:
+        self._rpc = rpc
+
+    async def get_source_ids(self, notebook_id: str) -> list[str]:
+        await self._rpc.rpc_call(
+            RPCMethod.GET_NOTEBOOK,
+            build_get_notebook_params(notebook_id),
+            source_path=f"/notebook/{notebook_id}",
+        )
+        return []
+
+
 def _stream_body(answer_row: list[Any]) -> bytes:
     """A minimal ``GenerateFreeFormStreamed`` body carrying one answer row."""
     return (
@@ -111,13 +126,19 @@ def _chat(
         transport = SimpleNamespace(
             perform_authed_post=AsyncMock(return_value=_response(body or _stream_body(ANSWER_ROW)))
         )
-    return ChatAPI(
-        rpc=rpc if rpc is not None else _RpcRecorder(),
-        transport=transport,
-        reqid=SimpleNamespace(next_reqid=AsyncMock(return_value=100000)),
-        loop_guard=loop_guard or SimpleNamespace(assert_bound_loop=lambda: None),
+    rpc = rpc if rpc is not None else _RpcRecorder()
+    reqid = SimpleNamespace(next_reqid=AsyncMock(return_value=100000))
+    backend = build_web_backend(
+        rpc,
+        chat_transport=transport,
+        chat_reqid=reqid,
         chat_timeout=45.0,
         chat_response_max_bytes=chat_response_max_bytes,
+    )
+    return ChatAPI(
+        backend=backend,
+        loop_guard=loop_guard or SimpleNamespace(assert_bound_loop=lambda: None),
+        notebooks=_NotebookSources(rpc),
     )
 
 
@@ -234,7 +255,7 @@ async def test_chat_byte_cap_aborts_pre_decode_with_bytes_read_over_limit(
         decoded = True
         raise AssertionError("the byte cap must abort before any decode")
 
-    monkeypatch.setattr(chat_api, "parse_streaming_chat_response", _decoder_tripwire)
+    monkeypatch.setattr(chat_codec, "parse_streaming_chat_response", _decoder_tripwire)
 
     http_client = httpx.AsyncClient()
     monkeypatch.setattr(http_client, "stream", fake_stream)
@@ -327,7 +348,7 @@ async def test_loop_affinity_guard_fires_before_any_lock_or_io() -> None:
     already held — too late for a lock bound to a dead loop.  So the guard must
     stay ahead of lock acquisition *and* ahead of source-id resolution.
     """
-    rpc = _RpcRecorder()
+    rpc = _RpcRecorder(GET_LAST_CONVERSATION_ID=[])
     post = AsyncMock(return_value=_response(_stream_body(ANSWER_ROW)))
     chat = _chat(
         rpc=rpc,
@@ -360,18 +381,19 @@ async def test_cancellation_between_the_two_phases_strands_a_recorded_turn() -> 
     changes it deliberately.
     """
     post = AsyncMock(return_value=_response(_stream_body(ANSWER_ROW)))
-    rpc = _RpcRecorder()
+    rpc = _RpcRecorder(GET_LAST_CONVERSATION_ID=[])
     chat = _chat(rpc=rpc, transport=SimpleNamespace(perform_authed_post=post))
+    original_rpc_call = rpc.rpc_call
     resolved: list[str] = []
 
-    async def cancel_after_the_post(notebook_id: str) -> str | None:
-        # First call is the pre-POST resolve; cancel the post-POST recovery.
-        resolved.append(notebook_id)
-        if len(resolved) == 1:
-            return None
-        raise asyncio.CancelledError
+    async def cancel_after_the_post(method: RPCMethod, params: Any, **kwargs: Any) -> Any:
+        if method is RPCMethod.GET_LAST_CONVERSATION_ID:
+            resolved.append(params[2])
+            if len(resolved) == 2:
+                raise asyncio.CancelledError
+        return await original_rpc_call(method, params, **kwargs)
 
-    chat.get_conversation_id = cancel_after_the_post  # type: ignore[method-assign]
+    rpc.rpc_call = cancel_after_the_post  # type: ignore[method-assign]
 
     with pytest.raises(asyncio.CancelledError):
         await chat.ask("nb-1", "Q?")

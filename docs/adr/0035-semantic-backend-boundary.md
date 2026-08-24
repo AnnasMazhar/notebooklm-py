@@ -175,7 +175,7 @@ P0 establishes evidence before runtime delegation:
   Every one of the 313 live projection ids has a terminal allocation; new adapter registrations or
   direct JSON bypasses fail closed. The bounded static call graph pins 519 reachable in-package
   nodes / 1,242 edges behind one aggregate digest, alongside 16 explicit helper fingerprints
-  (520 unique helpers overall). Thirty-six private DTO -> public dataclass paths are exact: 34 link to live
+  (520 unique helpers overall). Thirty-four private DTO -> public dataclass paths are exact: 32 link to live
   projections, while `SourceRefreshResult.result` is proven production-dead and
   `ValidatedSessionConfig.limits` is confined to internal runtime configuration by semantic AST
   fingerprints and mutation tests. Thirty-seven declarations across 28 literal final-dict sites

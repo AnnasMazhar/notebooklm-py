@@ -4,6 +4,7 @@ import logging
 from unittest.mock import MagicMock
 
 from notebooklm._chat import ChatAPI
+from tests._fixtures.web_backend import build_web_backend
 
 
 class MalformedErrorPayload(list):
@@ -17,10 +18,9 @@ def test_rate_limit_payload_parse_failure_logs_debug(caplog):
     # is a pure-payload-parsing helper that does not touch any collaborator,
     # so all four are plain ``MagicMock()`` placeholders.
     api = ChatAPI(
-        rpc=MagicMock(),
-        transport=MagicMock(),
-        reqid=MagicMock(),
+        backend=build_web_backend(MagicMock()),
         loop_guard=MagicMock(),
+        notebooks=MagicMock(),
     )
 
     with caplog.at_level(logging.DEBUG, logger="notebooklm._chat"):

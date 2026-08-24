@@ -14,6 +14,13 @@
 > tables below are the **v0.5.0 as-shipped** names, not the current tree — see
 > [`docs/architecture.md`](architecture.md) for the current module map.
 
+> **P6.1 update (2026-08-23):** Chat's six wire-backed operations now delegate
+> through a transport-neutral `ChatService` to `WebRpcBackend`. The backend
+> owns the web RPC/stream codecs and the completed two-phase ask workflow;
+> `ChatAPI` retains loop affinity, locks, caches, source selection, and the
+> recently-deleted tracker. Historical constructor and module names below
+> describe the earlier runtime and are not current ownership guidance.
+
 This document is the historical record of the Tier 12 / Tier 13 refactor arc.
 It exists for two audiences:
 

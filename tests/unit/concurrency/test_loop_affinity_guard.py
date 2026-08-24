@@ -199,6 +199,7 @@ def test_chat_ask_guards_against_cross_loop_call() -> None:
     instead of reaching for it through a chat-local runtime composite.
     """
     from notebooklm._chat import ChatAPI
+    from tests._fixtures.web_backend import build_web_backend
 
     other_loop = asyncio.new_event_loop()
     try:
@@ -209,10 +210,9 @@ def test_chat_ask_guards_against_cross_loop_call() -> None:
         )
 
         chat = ChatAPI(
-            rpc=MagicMock(),
-            transport=MagicMock(),
-            reqid=MagicMock(),
+            backend=build_web_backend(MagicMock()),
             loop_guard=loop_guard,
+            notebooks=MagicMock(),
         )
 
         async def inner() -> None:

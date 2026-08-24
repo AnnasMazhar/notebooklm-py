@@ -36,6 +36,7 @@ from notebooklm._request_types import AuthSnapshot
 from notebooklm._runtime.config import DEFAULT_CHAT_RESPONSE_MAX_BYTES
 from notebooklm.auth import AuthTokens
 from notebooklm.exceptions import ChatError
+from tests._fixtures.web_backend import build_web_backend
 from tests._helpers.client_factory import build_client_shell_for_tests
 from tests.unit.conftest import install_post_as_stream
 
@@ -76,20 +77,20 @@ class TestChatTimeoutRouting:
         auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
         client = NotebookLMClient(auth, timeout=75.0)
 
-        assert client.chat._chat_timeout == 180.0
-        assert client.chat._chat_response_max_bytes == DEFAULT_CHAT_RESPONSE_MAX_BYTES
+        assert client._backend._chat_timeout == 180.0
+        assert client._backend._chat_response_max_bytes == DEFAULT_CHAT_RESPONSE_MAX_BYTES
 
     def test_client_chat_timeout_none_inherits_transport_timeout(self):
         auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
         client = NotebookLMClient(auth, timeout=75.0, chat_timeout=None)
 
-        assert client.chat._chat_timeout is None
+        assert client._backend._chat_timeout is None
 
     def test_client_chat_response_max_bytes_none_inherits_shared_rpc_cap(self):
         auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
         client = NotebookLMClient(auth, timeout=75.0, chat_response_max_bytes=None)
 
-        assert client.chat._chat_response_max_bytes is None
+        assert client._backend._chat_response_max_bytes is None
 
     def test_client_chat_timeout_override_wins(self):
         auth = AuthTokens(cookies={"SID": "x"}, csrf_token="csrf", session_id="sid")
@@ -100,8 +101,8 @@ class TestChatTimeoutRouting:
             chat_response_max_bytes=123456,
         )
 
-        assert client.chat._chat_timeout == 180.0
-        assert client.chat._chat_response_max_bytes == 123456
+        assert client._backend._chat_timeout == 180.0
+        assert client._backend._chat_response_max_bytes == 123456
 
     @pytest.mark.parametrize("value", [0, -1])
     def test_client_rejects_invalid_chat_response_max_bytes(self, value: int):
@@ -122,13 +123,18 @@ class TestChatTimeoutRouting:
                 )
             )
         )
+        rpc = SimpleNamespace(rpc_call=AsyncMock(return_value=[[]]))
+        reqid = SimpleNamespace(next_reqid=AsyncMock(return_value=100000))
         chat = ChatAPI(
-            rpc=SimpleNamespace(rpc_call=AsyncMock(return_value=[[]])),
-            transport=transport,
-            reqid=SimpleNamespace(next_reqid=AsyncMock(return_value=100000)),
+            backend=build_web_backend(
+                rpc,
+                chat_transport=transport,
+                chat_reqid=reqid,
+                chat_timeout=45.0,
+                chat_response_max_bytes=987654,
+            ),
             loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
-            chat_timeout=45.0,
-            chat_response_max_bytes=987654,
+            notebooks=SimpleNamespace(),
         )
 
         result = await chat.ask(
@@ -418,12 +424,7 @@ class TestChatRefreshRetry:
             # Stage B1 PR 2 deleted the Stage A accessors
             # (``Session.session_transport`` / ``Session.collaborators``);
             # read the private slots directly instead.
-            api = ChatAPI(
-                rpc=core._rpc_executor,
-                transport=core._composed.transport,
-                reqid=core._collaborators.reqid,
-                loop_guard=core._collaborators.lifecycle,
-            )
+            api = core.chat
             result = await api.ask("nb_x", "Q?", source_ids=["s1"])
 
             assert call_count["n"] == 2
@@ -534,10 +535,9 @@ class TestChatNewConversationLocks:
         loop_guard = MagicMock()
         loop_guard.assert_bound_loop = MagicMock()
         return ChatAPI(
-            rpc=MagicMock(),
-            transport=MagicMock(),
-            reqid=MagicMock(),
+            backend=build_web_backend(MagicMock()),
             loop_guard=loop_guard,
+            notebooks=MagicMock(),
         )
 
     def test_same_notebook_reuses_new_conversation_lock(self):
@@ -558,25 +558,6 @@ class TestChatNewConversationLocks:
 
     @pytest.mark.asyncio
     async def test_failed_post_ask_hptbtc_lookup_releases_new_conversation_lock(self):
-        class HptbtcFailureChatAPI(ChatAPI):
-            def __init__(self, *, lookup_results: list[str | ChatError], **kwargs: Any) -> None:
-                super().__init__(**kwargs)
-                self._lookup_results = iter(lookup_results)
-                self.lookup_count = 0
-
-            async def get_conversation_id(self, notebook_id: str) -> str | None:
-                self.lookup_count += 1
-                result = next(self._lookup_results)
-                if isinstance(result, ChatError):
-                    raise result
-                return result
-
-            async def get_conversation_turns(
-                self, notebook_id: str, conversation_id: str, limit: int = 2
-            ) -> list[Any]:
-                """Return existing history through the production method contract."""
-                return [[[None, None, 1, "Existing question?"]]]
-
         async def fake_perform_authed_post(*args: Any, **kwargs: Any) -> httpx.Response:
             return httpx.Response(
                 200,
@@ -584,14 +565,32 @@ class TestChatNewConversationLocks:
                 content=_make_answer_response_body(),
             )
 
-        chat = HptbtcFailureChatAPI(
-            rpc=SimpleNamespace(),
-            transport=SimpleNamespace(
-                perform_authed_post=AsyncMock(side_effect=fake_perform_authed_post)
+        lookup_results: Any = iter([ChatError("hPTbtc lookup failed"), [[["conv-after-failure"]]]])
+        lookup_count = 0
+
+        async def rpc_call(method: Any, params: Any, **kwargs: Any) -> Any:
+            nonlocal lookup_count
+            if method.name == "GET_LAST_CONVERSATION_ID":
+                lookup_count += 1
+                result = next(lookup_results)
+                if isinstance(result, ChatError):
+                    raise result
+                return result
+            if method.name == "GET_CONVERSATION_TURNS":
+                return [[[None, None, 1, "Existing question?"]]]
+            raise AssertionError(method)
+
+        transport = SimpleNamespace(
+            perform_authed_post=AsyncMock(side_effect=fake_perform_authed_post)
+        )
+        chat = ChatAPI(
+            backend=build_web_backend(
+                SimpleNamespace(rpc_call=rpc_call),
+                chat_transport=transport,
+                chat_reqid=SimpleNamespace(next_reqid=AsyncMock(return_value=100000)),
             ),
-            reqid=SimpleNamespace(next_reqid=AsyncMock(side_effect=[100000, 200000])),
             loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
-            lookup_results=[ChatError("hPTbtc lookup failed"), "conv-after-failure"],
+            notebooks=SimpleNamespace(),
         )
         new_conversation_lock = chat._get_new_conversation_lock("nb-1")
 
@@ -607,7 +606,7 @@ class TestChatNewConversationLocks:
 
         assert result.conversation_id == "conv-after-failure"
         assert result.answer == "Refactor answer is long enough."
-        assert chat.lookup_count == 2
+        assert lookup_count == 2
 
 
 class TestBuildChatRequestFactory:
@@ -625,10 +624,9 @@ class TestBuildChatRequestFactory:
         from unittest.mock import MagicMock
 
         return ChatAPI(
-            rpc=MagicMock(),
-            transport=MagicMock(),
-            reqid=MagicMock(),
+            backend=build_web_backend(MagicMock()),
             loop_guard=MagicMock(),
+            notebooks=MagicMock(),
         )
 
     def test_build_request_omits_authuser_for_default_profile(self):

@@ -28,6 +28,23 @@ _PUBLIC_FACTORY_CALLS = {
     ("ReportSuggestion", "from_api_response"),
 }
 _PUBLIC_FACTORY_METHODS = {method for _, method in _PUBLIC_FACTORY_CALLS}
+_REVIEWED_CODEC_VALUE_IMPORTS = {
+    "documents.py": {
+        ("_types.documents", "StructuredDocument"),
+    },
+    "chat_saved_note.py": {
+        ("_types.documents", "utf16_len"),
+    },
+    "chat_stream.py": {
+        ("_types.documents", "DocumentAnnotation"),
+        ("_types.documents", "StructuredDocument"),
+        ("_types.documents", "_utf16_slice"),
+        ("_types.documents", "utf16_len"),
+        ("types", "ChatReference"),
+        ("types", "ConversationTurnKey"),
+        ("types", "NextStepSuggestion"),
+    },
+}
 
 
 def _tree(path: Path) -> ast.Module:
@@ -53,19 +70,38 @@ def test_web_codecs_do_not_import_or_construct_public_models() -> None:
     forbidden_names = {owner for owner, _ in _PUBLIC_FACTORY_CALLS}
     violations: list[str] = []
     for path in sorted(_CODECS.glob("*.py")):
-        if path.name == "documents.py":
-            continue
         tree = _tree(path)
         for node in ast.walk(tree):
             if isinstance(node, ast.ImportFrom) and node.module:
                 if node.module == "types" or node.module.startswith(
                     ("_types", "notebooklm.types", "notebooklm._types")
                 ):
-                    violations.append(f"{path.name}:{node.lineno}:import {node.module}")
+                    imported = {(node.module, alias.name) for alias in node.names}
+                    unexpected = imported - _REVIEWED_CODEC_VALUE_IMPORTS.get(path.name, set())
+                    violations.extend(
+                        f"{path.name}:{node.lineno}:import {module}.{name}"
+                        for module, name in sorted(unexpected)
+                    )
             if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
                 if node.func.id in forbidden_names:
                     violations.append(f"{path.name}:{node.lineno}:construct {node.func.id}")
     assert violations == []
+    actual_reviewed = {
+        path.name: {
+            (node.module, alias.name)
+            for node in ast.walk(_tree(path))
+            if isinstance(node, ast.ImportFrom)
+            and node.module
+            and (
+                node.module == "types"
+                or node.module.startswith(("_types", "notebooklm.types", "notebooklm._types"))
+            )
+            for alias in node.names
+        }
+        for path in sorted(_CODECS.glob("*.py"))
+        if path.name in _REVIEWED_CODEC_VALUE_IMPORTS
+    }
+    assert actual_reviewed == _REVIEWED_CODEC_VALUE_IMPORTS
 
 
 def test_projectors_have_no_wire_factories_rpc_ids_or_positional_indices() -> None:
@@ -104,7 +140,6 @@ def test_public_model_wire_dependency_allowlist_cannot_grow() -> None:
     assert rpc_importers == {
         "artifacts.py",
         "chat.py",
-        "collections.py",
         "notebooks.py",
         "research.py",
         "sharing.py",

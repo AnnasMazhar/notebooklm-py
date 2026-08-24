@@ -293,13 +293,18 @@ async def test_client_auth_identity_invariant_holds_across_the_graph() -> None:
 
 
 def test_backend_does_not_own_an_http_session_today() -> None:
-    """Pre-P8 the backend borrows the client-owned executor and its kernel."""
+    """Pre-P8 the backend borrows client-owned RPC and streamed-Chat collaborators."""
     backend = build_web_backend(object())
 
     assert backend.kind is BackendKind.WEB
     assert set(vars(backend)) == {
         "_executor",
         "_transport_factory",
+        "_chat_transport",
+        "_chat_reqid",
+        "_chat_timeout",
+        "_chat_response_max_bytes",
+        "_source_uploader",
         "_capabilities",
         "_closed",
     }

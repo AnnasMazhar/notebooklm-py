@@ -57,6 +57,12 @@ from notebooklm._records import (
     ARTIFACT_REVISE_SLIDE_DEF,
     ARTIFACT_SUGGEST_REPORTS_DEF,
     ARTIFACT_WAIT_DEF,
+    CHAT_ASK_DEF,
+    CHAT_CONFIGURE_DEF,
+    CHAT_DELETE_HISTORY_DEF,
+    CHAT_GET_CONVERSATION_DEF,
+    CHAT_GET_HISTORY_DEF,
+    CHAT_SAVE_NOTE_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -192,6 +198,12 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
         SOURCE_LIST_DEF: (Operation.SOURCE_LIST, CallPolicy.MUTATION),
         SOURCE_GET_DEF: (Operation.SOURCE_GET, CallPolicy.MUTATION),
         SOURCE_ADD_URL_DEF: (Operation.SOURCE_ADD_URL, CallPolicy.MUTATION),
+        CHAT_ASK_DEF: (Operation.CHAT_ASK, CallPolicy.STREAM),
+        CHAT_GET_CONVERSATION_DEF: (Operation.CHAT_GET_CONVERSATION, CallPolicy.READ),
+        CHAT_GET_HISTORY_DEF: (Operation.CHAT_GET_HISTORY, CallPolicy.READ),
+        CHAT_DELETE_HISTORY_DEF: (Operation.CHAT_DELETE_HISTORY, CallPolicy.MUTATION),
+        CHAT_CONFIGURE_DEF: (Operation.CHAT_CONFIGURE, CallPolicy.MUTATION),
+        CHAT_SAVE_NOTE_DEF: (Operation.CHAT_SAVE_NOTE, CallPolicy.MUTATION),
         SHARING_GET_DEF: (Operation.SHARING_GET, CallPolicy.READ),
         SHARING_SET_PUBLIC_DEF: (Operation.SHARING_SET_PUBLIC, CallPolicy.MUTATION),
         SHARING_SET_VIEW_LEVEL_DEF: (
@@ -398,6 +410,51 @@ def test_migrated_operation_defs_are_frozen_and_attach_expected_call_policy() ->
             ARTIFACT_SUGGEST_REPORTS_DEF,
             [(RPCMethod.GET_SUGGESTED_REPORTS, None)],
             [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            CHAT_ASK_DEF,
+            [
+                (RPCMethod.GET_NOTEBOOK, None),
+                (RPCMethod.GET_LAST_CONVERSATION_ID, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            CHAT_GET_CONVERSATION_DEF,
+            [(RPCMethod.GET_LAST_CONVERSATION_ID, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            CHAT_GET_HISTORY_DEF,
+            [
+                (RPCMethod.GET_LAST_CONVERSATION_ID, None),
+                (RPCMethod.GET_CONVERSATION_TURNS, None),
+            ],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            CHAT_DELETE_HISTORY_DEF,
+            [(RPCMethod.DELETE_CONVERSATION, None)],
+            [IdempotencyPolicy.IDEMPOTENT_SET_OP],
+        ),
+        (
+            CHAT_CONFIGURE_DEF,
+            [(RPCMethod.GET_NOTEBOOK, None), (RPCMethod.RENAME_NOTEBOOK, None)],
+            [
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+                IdempotencyPolicy.IDEMPOTENT_SET_OP,
+            ],
+        ),
+        (
+            CHAT_SAVE_NOTE_DEF,
+            [(RPCMethod.CREATE_NOTE, "saved_from_chat")],
+            [IdempotencyPolicy.NON_IDEMPOTENT_NO_RETRY],
         ),
         (
             ARTIFACT_LIST_DEF,

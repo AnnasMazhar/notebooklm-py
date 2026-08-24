@@ -285,7 +285,7 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "answer_anchor_start/end; answer_document itself is removed from the REST response"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/server/routes/chat.py:return ask_result_view(result)",
         ),
     },
@@ -303,7 +303,7 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "answer_anchor_start/end"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/server/routes/chat.py:return ask_result_view(result)",
         ),
     },
@@ -322,8 +322,8 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "answer-document blocks also bound anchor validity"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def extract_text_passages",
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/server/routes/chat.py:return ask_result_view(result)",
         ),
     },
@@ -342,8 +342,8 @@ REST_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "validate answer anchors"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def extract_text_passages",
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/server/routes/chat.py:return ask_result_view(result)",
         ),
     },

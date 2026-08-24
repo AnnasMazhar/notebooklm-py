@@ -2,11 +2,10 @@
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
 P2.2 routes three notebook mutation handlers; P2.3 routes the live URL/YouTube
-source composite; P5.1–P5.8 route Studio workflows; P6.2 routes Research; P6.3 routes
-note/mind-map workflows; P6.4 routes labels/collections; P6.5 routes Sharing; P6.6 routes
-settings/suggestions; and P6.7 adds the remaining source variants. These bindings preserve
-existing workflows behind typed neutral operations. New or migrated wire shapes belong in
-``_web.codec``; the backend owns their execution authority.
+source composite; P5.1–P5.8 route Studio workflows; P6.1 routes Chat; P6.2 routes Research;
+P6.3 routes note/mind-map workflows; P6.4 routes labels/collections; P6.5 routes Sharing;
+P6.6 routes settings/suggestions; and P6.7 adds the remaining source variants. New or
+migrated wire shapes belong in ``_web.codec``; the backend owns their execution authority.
 """
 
 from __future__ import annotations
@@ -16,7 +15,7 @@ import reprlib
 from collections.abc import Callable
 from datetime import datetime
 from types import MappingProxyType
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import httpx
 
@@ -98,10 +97,12 @@ from .._row_adapters.artifacts import (
     unwrap_artifact_rows,
 )
 from .._rpc_executor import RpcExecutor
+from .._runtime.config import assert_resolved_read_timeout
 from .._source.listing import SourceLister
 from .._source.upload_payloads import build_template_block
 from ..exceptions import (
     AuthError,
+    ChatError,
     ClientError,
     DecodingError,
     IdempotencyVariantError,
@@ -125,6 +126,7 @@ from ..rpc import (
     normalize_grpc_status,
     safe_index,
 )
+from .chat import ChatWebHandlers
 from .codec import settings as settings_codec
 from .codec.artifacts import decode_artifact, decode_mind_map_artifact
 from .codec.mind_maps import (
@@ -139,54 +141,18 @@ from .codec.notes import (
     decode_note_backed_mind_maps,
     decode_notes,
 )
+from .error_policy import SAFE_REASON_DIAGNOSTICS, WEB_ERROR_REASONS
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
-from .source_variants import SourceVariantWebHandlers
+
+if TYPE_CHECKING:
+    from .._reqid_counter import ReqidCounter
+    from .._runtime.transport import RuntimeTransport
 
 notebook_logger = logging.getLogger("notebooklm._notebooks")
 source_logger = logging.getLogger("notebooklm").getChild("_sources")
 artifact_logger = logging.getLogger("notebooklm._artifact.listing")
 
 _CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
-
-_WEB_ERROR_REASONS: dict[type[object], BackendErrorReason] = {
-    AuthError: BackendErrorReason.AUTH,
-    ClientError: BackendErrorReason.CLIENT,
-    DecodingError: BackendErrorReason.DECODING,
-    IdempotencyVariantError: BackendErrorReason.IDEMPOTENCY_VARIANT,
-    NetworkError: BackendErrorReason.NETWORK,
-    RateLimitError: BackendErrorReason.RATE_LIMIT,
-    RPCResponseTooLargeError: BackendErrorReason.RESPONSE_TOO_LARGE,
-    RPCError: BackendErrorReason.RPC,
-    ServerError: BackendErrorReason.SERVER,
-    RPCTimeoutError: BackendErrorReason.TIMEOUT,
-    UnknownRPCMethodError: BackendErrorReason.UNKNOWN_RPC_METHOD,
-}
-
-_SAFE_REASON_DIAGNOSTICS: dict[BackendErrorReason, tuple[str, ...]] = {
-    BackendErrorReason.AUTH: ("recoverable",),
-    BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE: (
-        "artifact_type",
-        "method_id",
-        "raw_response",
-    ),
-    BackendErrorReason.ARTIFACT_NOT_FOUND: (
-        "artifact_id",
-        "artifact_type",
-        "method_id",
-        "raw_response",
-    ),
-    BackendErrorReason.CLIENT: ("status_code",),
-    BackendErrorReason.DECODING: (),
-    BackendErrorReason.IDEMPOTENCY_VARIANT: (),
-    BackendErrorReason.NETWORK: (),
-    BackendErrorReason.RATE_LIMIT: ("retry_after",),
-    BackendErrorReason.RESPONSE_TOO_LARGE: ("limit_bytes", "bytes_read"),
-    BackendErrorReason.RPC: (),
-    BackendErrorReason.SERVER: ("status_code",),
-    BackendErrorReason.TIMEOUT: ("timeout_seconds",),
-    BackendErrorReason.UNKNOWN_RPC_METHOD: ("path", "source", "data_at_failure"),
-}
-
 
 def _capture_public_failure(
     exc: Exception,
@@ -446,7 +412,7 @@ class _DeadlineRpcCaller:
         raise timeout_error
 
 
-class WebRpcBackend(SourceVariantWebHandlers):
+class WebRpcBackend(ChatWebHandlers):
     """Typed semantic binding over the existing shared :class:`RpcExecutor`."""
 
     def __init__(
@@ -455,12 +421,21 @@ class WebRpcBackend(SourceVariantWebHandlers):
         *,
         transport_factory: Callable[..., object],
         source_uploader: Any | None = None,
+        chat_transport: RuntimeTransport | None = None,
+        chat_reqid: ReqidCounter | None = None,
+        chat_timeout: float | None = None,
+        chat_response_max_bytes: int | None = None,
     ) -> None:
+        assert_resolved_read_timeout(chat_timeout, name="chat_timeout")
         self._executor = executor
         self._transport_factory = transport_factory
         self._source_uploader = source_uploader
         if self._source_uploader is not None:
             self._source_uploader.configure_source_limit_lookup(self._source_file_limit)
+        self._chat_transport = chat_transport
+        self._chat_reqid = chat_reqid
+        self._chat_timeout = chat_timeout
+        self._chat_response_max_bytes = chat_response_max_bytes
         self._capabilities = BackendCapabilities(
             supported_operations=WEB_SUPPORTED_OPERATIONS,
         )
@@ -566,7 +541,7 @@ class WebRpcBackend(SourceVariantWebHandlers):
             # Catch the closed library family rather than a broad ``RPCError``
             # wrap.  ``_translate_error`` still accepts only the exact reviewed
             # transport types and fails closed for any semantic exception.
-            if not isinstance(exc, (RPCError, NetworkError, IdempotencyVariantError)):
+            if not isinstance(exc, (RPCError, NetworkError, IdempotencyVariantError, ChatError)):
                 raise BackendContractError(
                     f"unclassified web error type {type(exc).__module__}.{type(exc).__qualname__}",
                     operation=operation.key,
@@ -1322,7 +1297,7 @@ class WebRpcBackend(SourceVariantWebHandlers):
 
     @staticmethod
     def _error_diagnostics(
-        exc: RPCError | NetworkError | IdempotencyVariantError,
+        exc: RPCError | NetworkError | IdempotencyVariantError | ChatError,
         reason: BackendErrorReason,
     ) -> MappingProxyType[str, object]:
         diagnostics = {
@@ -1331,23 +1306,30 @@ class WebRpcBackend(SourceVariantWebHandlers):
             "found_ids": getattr(exc, "found_ids", None),
             "raw_response": getattr(exc, "raw_response", None),
         }
-        diagnostics.update((name, getattr(exc, name)) for name in _SAFE_REASON_DIAGNOSTICS[reason])
+        diagnostics.update((name, getattr(exc, name)) for name in SAFE_REASON_DIAGNOSTICS[reason])
         return MappingProxyType(diagnostics)
 
     @classmethod
     def _translate_error(
         cls,
         operation: Operation,
-        exc: RPCError | NetworkError | IdempotencyVariantError,
+        exc: RPCError | NetworkError | IdempotencyVariantError | ChatError,
     ) -> BackendError:
-        reason = _WEB_ERROR_REASONS.get(type(exc))
+        reason = WEB_ERROR_REASONS.get(type(exc))
         if reason is None:
             raise BackendContractError(
                 f"unclassified web error type {type(exc).__module__}.{type(exc).__qualname__}",
                 operation=operation,
             ) from exc
         diagnostics = dict(cls._error_diagnostics(exc, reason))
-        if isinstance(exc, (RPCError, NetworkError)):
+        if isinstance(exc, (RPCError, NetworkError)) and operation not in {
+            Operation.CHAT_ASK,
+            Operation.CHAT_GET_CONVERSATION,
+            Operation.CHAT_GET_HISTORY,
+            Operation.CHAT_DELETE_HISTORY,
+            Operation.CHAT_CONFIGURE,
+            Operation.CHAT_SAVE_NOTE,
+        }:
             diagnostics["public_error_failure"] = _capture_public_failure(
                 exc,
                 operation=operation,

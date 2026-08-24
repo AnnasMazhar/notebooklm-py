@@ -10,9 +10,8 @@ produces the same payload Google's web UI sends when its "Save to note"
 button is clicked. Drift from that payload risks the server silently
 dropping citation anchors and reverting the note to plain text.
 
-The encoder moved from ``_mind_map.py`` to ``_chat/notes.py`` in
-Phase 6 (refactor-history.md Step 8, ADR-0013); the test imports were updated
-accordingly.
+The production encoder now lives in ``_web/codec/chat_saved_note.py``. The
+``_chat.notes`` imports below also pin the private compatibility re-exports.
 """
 
 from __future__ import annotations
@@ -27,6 +26,10 @@ from notebooklm._chat.notes import (
     _resolve_reference,
     _strip_citation_markers,
     build_save_chat_as_note_params,
+)
+from notebooklm._records import ChatReferenceRecord
+from notebooklm._web.codec.chat_saved_note import (
+    build_save_note_params as build_semantic_save_note_params,
 )
 from notebooklm.types import ChatReference
 
@@ -136,6 +139,32 @@ class TestBuildSaveChatAsNoteParamsGolden:
         actual_json = json.dumps(actual_params, separators=(",", ":"))
         expected_json = json.dumps(expected_params, separators=(",", ":"))
         assert actual_json == expected_json
+
+    def test_semantic_web_codec_matches_captured_payload(self):
+        """The adapter-owned neutral-record codec retains the exact wire tree."""
+        fixture = _load_request_fixture()
+        expected_params = fixture["params"]
+        passage = expected_params[3][0]
+        reference = ChatReferenceRecord(
+            source_id=passage[5][0][1],
+            citation_number=1,
+            cited_text=passage[4][0][0][2][0][0][2][0],
+            start_char=passage[3][0][1],
+            end_char=passage[3][0][2],
+            chunk_id=passage[6][0],
+            passage_id=passage[5][0][0][0],
+        )
+
+        actual_params = build_semantic_save_note_params(
+            expected_params[0],
+            expected_params[1],
+            (reference,),
+            expected_params[4],
+        )
+
+        assert json.dumps(actual_params, separators=(",", ":")) == json.dumps(
+            expected_params, separators=(",", ":")
+        )
 
     def test_passage_id_falls_back_to_chunk_id_when_unset(self):
         """When ChatReference.passage_id is None (the production path,

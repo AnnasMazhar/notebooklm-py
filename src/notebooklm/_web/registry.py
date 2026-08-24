@@ -1,10 +1,8 @@
 """Closed web dispositions for the semantic operation vocabulary.
 
-P2 notebook/source operations, P5 Studio family operations, P6.2 Research, P6.3 note/mind-map
-workflows, P6.4 source-label/collection operations, P6.5 Sharing, P6.6 settings/suggestions, and
-the P6.7 remaining-source variants have executable bindings. Every other operation has an
-unsupported disposition, and the count assertions force a deliberate registry update when the
-closed :class:`Operation` enum changes.
+P2 notebook/source operations, P5 Studio family operations, and P6.1–P6.7 domain workflows have
+executable bindings. Every other operation has an unsupported disposition, and the count
+assertions force a deliberate registry update when the closed :class:`Operation` enum changes.
 """
 
 from __future__ import annotations
@@ -35,6 +33,12 @@ from .._records import (
     ARTIFACT_REVISE_SLIDE_DEF,
     ARTIFACT_SUGGEST_REPORTS_DEF,
     ARTIFACT_WAIT_DEF,
+    CHAT_ASK_DEF,
+    CHAT_CONFIGURE_DEF,
+    CHAT_DELETE_HISTORY_DEF,
+    CHAT_GET_CONVERSATION_DEF,
+    CHAT_GET_HISTORY_DEF,
+    CHAT_SAVE_NOTE_DEF,
     COLLECTION_CREATE_DEF,
     COLLECTION_DELETE_DEF,
     COLLECTION_GET_DEF,
@@ -138,6 +142,12 @@ _SUPPORTED_DEFINITIONS: Final[Mapping[Operation, OperationDef[Any, Any]]] = Mapp
         Operation.SOURCE_GET_FULLTEXT: SOURCE_GET_FULLTEXT_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
+        Operation.CHAT_ASK: CHAT_ASK_DEF,
+        Operation.CHAT_GET_CONVERSATION: CHAT_GET_CONVERSATION_DEF,
+        Operation.CHAT_GET_HISTORY: CHAT_GET_HISTORY_DEF,
+        Operation.CHAT_DELETE_HISTORY: CHAT_DELETE_HISTORY_DEF,
+        Operation.CHAT_CONFIGURE: CHAT_CONFIGURE_DEF,
+        Operation.CHAT_SAVE_NOTE: CHAT_SAVE_NOTE_DEF,
         Operation.NOTE_LIST: NOTE_LIST_DEF,
         Operation.NOTE_GET: NOTE_GET_DEF,
         Operation.NOTE_CREATE: NOTE_CREATE_DEF,
@@ -214,6 +224,12 @@ _HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType(
         Operation.SOURCE_GET_FULLTEXT: "_source_get_fulltext",
         Operation.SOURCE_LIST: "_source_list",
         Operation.SOURCE_GET: "_source_get",
+        Operation.CHAT_ASK: "_chat_ask",
+        Operation.CHAT_GET_CONVERSATION: "_chat_get_conversation",
+        Operation.CHAT_GET_HISTORY: "_chat_get_history",
+        Operation.CHAT_DELETE_HISTORY: "_chat_delete_history",
+        Operation.CHAT_CONFIGURE: "_chat_configure",
+        Operation.CHAT_SAVE_NOTE: "_chat_save_note",
         Operation.NOTE_LIST: "_note_list",
         Operation.NOTE_GET: "_note_get",
         Operation.NOTE_CREATE: "_note_create",
@@ -278,7 +294,7 @@ _STAGED_HANDLER_NAMES: Final[Mapping[Operation, str]] = MappingProxyType({})
 # the runtime registry boundary: a new enum member must not silently inherit an
 # unsupported disposition without a web-registry review.
 _EXPECTED_OPERATION_COUNT: Final = 87
-_EXPECTED_SUPPORTED_COUNT: Final = 71
+_EXPECTED_SUPPORTED_COUNT: Final = 77
 _EXPECTED_STAGED_COUNT: Final = 0
 
 

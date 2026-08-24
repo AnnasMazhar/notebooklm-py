@@ -963,7 +963,8 @@ REVIEWED_BACKEND_IMPORTS = frozenset(
         ("_web/codec/research.py", "_records", "ResearchImportedSourceRecord"),
         ("_web/codec/research.py", "_records", "ResearchMode"),
         ("_web/codec/research.py", "_records", "ResearchSearchSource"),
-        ("_web/codec/research.py", "_records", "ResearchSourceRecord"),
+        ("_research_neutral.py", "_records", "ResearchSourceRecord"),
+        ("_research_neutral.py", "_records", "ResearchTaskRecord"),
         ("_web/codec/research.py", "_records", "ResearchStartResult"),
         ("_web/codec/research.py", "_records", "ResearchTaskRecord"),
         ("_web/codec/artifacts.py", "_records", "ArtifactRepresentationRecord"),
@@ -1182,6 +1183,96 @@ REVIEWED_BACKEND_IMPORTS |= frozenset(
     }
 )
 
+# P6.1 adds the transport-neutral Chat service/facade/projector graph and six
+# web bindings. The concrete handlers live in a focused mixin to preserve the
+# web-backend module-size ratchet.
+REVIEWED_BACKEND_IMPORTS |= frozenset(
+    {
+        ("_chat/api.py", "_backend", "BackendAdapter"),
+        ("_chat/api.py", "_backend", "BackendError"),
+        ("_chat/api.py", "_backend_compat", "project_backend_error"),
+        ("_chat/api.py", "_projectors", "chat_reference_record"),
+        ("_chat/api.py", "_projectors", "project_chat_ask_result"),
+        ("_chat/api.py", "_projectors", "project_chat_saved_note"),
+        ("_chat/api.py", "_projectors", "project_chat_settings"),
+        ("_chat/api.py", "_projectors", "project_chat_turns_legacy"),
+        ("_chat/api.py", "_records", "ChatAskInput"),
+        ("_chat/api.py", "_records", "ChatAskResultRecord"),
+        ("_chat/api.py", "_records", "ChatConfigureAction"),
+        ("_chat/api.py", "_records", "ChatConfigureInput"),
+        ("_chat/api.py", "_records", "ChatGetHistoryResult"),
+        ("_chat/api.py", "_records", "ChatHistoryPairRecord"),
+        ("_chat/api.py", "_records", "ChatSaveNoteInput"),
+        ("_chat/history.py", "_records", "ChatGetHistoryResult"),
+        ("_chat/history.py", "_records", "ChatTurnDecodeErrorRecord"),
+        ("_chat/notes.py", "_projectors", "chat_reference_record"),
+        ("_chat/service.py", "_backend", "BackendAdapter"),
+        ("_chat/service.py", "_records", "CHAT_ASK_DEF"),
+        ("_chat/service.py", "_records", "CHAT_CONFIGURE_DEF"),
+        ("_chat/service.py", "_records", "CHAT_DELETE_HISTORY_DEF"),
+        ("_chat/service.py", "_records", "CHAT_GET_CONVERSATION_DEF"),
+        ("_chat/service.py", "_records", "CHAT_GET_HISTORY_DEF"),
+        ("_chat/service.py", "_records", "CHAT_SAVE_NOTE_DEF"),
+        ("_chat/service.py", "_records", "ChatAskInput"),
+        ("_chat/service.py", "_records", "ChatAskResultRecord"),
+        ("_chat/service.py", "_records", "ChatConfigureInput"),
+        ("_chat/service.py", "_records", "ChatConfigureResult"),
+        ("_chat/service.py", "_records", "ChatDeleteHistoryInput"),
+        ("_chat/service.py", "_records", "ChatGetConversationInput"),
+        ("_chat/service.py", "_records", "ChatGetHistoryInput"),
+        ("_chat/service.py", "_records", "ChatGetHistoryResult"),
+        ("_chat/service.py", "_records", "ChatSaveNoteInput"),
+        ("_chat/service.py", "_records", "ChatSaveNoteResult"),
+        ("_chat/stream_decode.py", "_records", "ChatNextStepRecord"),
+        ("_chat/stream_decode.py", "_records", "ChatReferenceRecord"),
+        ("_chat/stream_decode.py", "_records", "ChatStreamAnswerRecord"),
+        ("_chat/stream_decode.py", "_records", "ChatTurnKeyRecord"),
+        ("_chat/wire.py", "_records", "ChatHistoryPairRecord"),
+        ("_projectors.py", "_records", "ChatAskResultRecord"),
+        ("_projectors.py", "_records", "ChatGetHistoryResult"),
+        ("_projectors.py", "_records", "ChatLegacyMappingRecord"),
+        ("_projectors.py", "_records", "ChatLegacySequenceRecord"),
+        ("_projectors.py", "_records", "ChatLegacyValue"),
+        ("_projectors.py", "_records", "ChatReferenceRecord"),
+        ("_projectors.py", "_records", "ChatSavedNoteRecord"),
+        ("_projectors.py", "_records", "ChatSettingsRecord"),
+        ("_web/chat.py", "_backend", "BackendContractError"),
+        ("_web/chat.py", "_records", "ChatAskInput"),
+        ("_web/chat.py", "_records", "ChatAskResultRecord"),
+        ("_web/chat.py", "_records", "ChatConfigureAction"),
+        ("_web/chat.py", "_records", "ChatConfigureInput"),
+        ("_web/chat.py", "_records", "ChatConfigureResult"),
+        ("_web/chat.py", "_records", "ChatDeleteHistoryInput"),
+        ("_web/chat.py", "_records", "ChatDeleteHistoryResult"),
+        ("_web/chat.py", "_records", "ChatGetConversationInput"),
+        ("_web/chat.py", "_records", "ChatGetConversationResult"),
+        ("_web/chat.py", "_records", "ChatGetHistoryInput"),
+        ("_web/chat.py", "_records", "ChatGetHistoryResult"),
+        ("_web/chat.py", "_records", "ChatSaveNoteInput"),
+        ("_web/chat.py", "_records", "ChatSaveNoteResult"),
+        ("_web/codec/chat.py", "_records", "ChatAskInput"),
+        ("_web/codec/chat.py", "_records", "ChatConfigureInput"),
+        ("_web/codec/chat.py", "_records", "ChatConversationTurnRecord"),
+        ("_web/codec/chat.py", "_records", "ChatGetHistoryResult"),
+        ("_web/codec/chat.py", "_records", "ChatLegacyMappingRecord"),
+        ("_web/codec/chat.py", "_records", "ChatLegacySequenceRecord"),
+        ("_web/codec/chat.py", "_records", "ChatLegacyValue"),
+        ("_web/codec/chat.py", "_records", "ChatReferenceRecord"),
+        ("_web/codec/chat.py", "_records", "ChatSavedNoteRecord"),
+        ("_web/codec/chat.py", "_records", "ChatSettingsRecord"),
+        ("_web/codec/chat.py", "_records", "ChatStreamAnswerRecord"),
+        ("_web/codec/chat.py", "_records", "ChatTurnDecodeErrorRecord"),
+        ("_web/codec/chat_saved_note.py", "_records", "ChatReferenceRecord"),
+        ("_web/error_policy.py", "_backend", "BackendErrorReason"),
+        ("_web/registry.py", "_records", "CHAT_ASK_DEF"),
+        ("_web/registry.py", "_records", "CHAT_CONFIGURE_DEF"),
+        ("_web/registry.py", "_records", "CHAT_DELETE_HISTORY_DEF"),
+        ("_web/registry.py", "_records", "CHAT_GET_CONVERSATION_DEF"),
+        ("_web/registry.py", "_records", "CHAT_GET_HISTORY_DEF"),
+        ("_web/registry.py", "_records", "CHAT_SAVE_NOTE_DEF"),
+    }
+)
+
 _REVIEWED_BACKEND_IMPORT_MODULES = frozenset(
     {
         "_backend",
@@ -1308,6 +1399,12 @@ ACTIVE_BACKEND_INVOKE_SITES = frozenset(
         "_source_service.py:SourceService.get_guide",
         "_source_service.py:SourceService.refresh",
         "_source_service.py:SourceService.update",
+        "_chat/service.py:ChatService.ask",
+        "_chat/service.py:ChatService.configure",
+        "_chat/service.py:ChatService.delete_history",
+        "_chat/service.py:ChatService.get_conversation_id",
+        "_chat/service.py:ChatService.get_history",
+        "_chat/service.py:ChatService.save_note",
     }
 )
 INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
@@ -1318,6 +1415,7 @@ INERT_P1_BACKEND_INVOKE_SITES: frozenset[str] = frozenset()
 _KEYWORD_BACKEND_FACADES = frozenset(
     {
         "ArtifactsAPI",
+        "ChatAPI",
         "MindMapFamilyService",
         "NoteService",
         "NotebooksAPI",
@@ -2000,7 +2098,7 @@ def audit_recency_contracts() -> list[str]:
         )
 
     chat_tree = _parse(SRC_ROOT / "_chat" / "api.py")
-    expected_chat_gets = {"configure": 0, "set_mode": 0, "get_settings": 1}
+    expected_chat_gets = {"configure": 0, "set_mode": 0, "get_settings": 0}
     for method_name, expected_gets in expected_chat_gets.items():
         method_node = _find_class_method(chat_tree, "ChatAPI", method_name)
         actual_gets = (
@@ -2012,6 +2110,12 @@ def audit_recency_contracts() -> list[str]:
             errors.append(
                 f"ChatAPI.{method_name} must contain exactly {expected_gets} GET_NOTEBOOK binding(s)"
             )
+    chat_backend_tree = _parse(SRC_ROOT / "_web" / "chat.py")
+    configure_fn = _find_class_method(chat_backend_tree, "ChatWebHandlers", "_chat_configure")
+    if configure_fn is None or _rpc_binding_call_count(configure_fn, RPCMethod.GET_NOTEBOOK) != 1:
+        errors.append(
+            "ChatWebHandlers._chat_configure must contain exactly one GET_NOTEBOOK binding"
+        )
     return errors
 
 

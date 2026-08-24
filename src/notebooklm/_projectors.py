@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import cast
+from typing import Any, cast
 from urllib.parse import quote
 
 from ._env import get_base_url
@@ -11,6 +11,14 @@ from ._records import (
     AccountLimitsRecord,
     ArtifactRecord,
     ArtifactUserStateRecord,
+    ChatAskResultRecord,
+    ChatGetHistoryResult,
+    ChatLegacyMappingRecord,
+    ChatLegacySequenceRecord,
+    ChatLegacyValue,
+    ChatReferenceRecord,
+    ChatSavedNoteRecord,
+    ChatSettingsRecord,
     CollectionRecord,
     GenerationStatusRecord,
     LabelKind,
@@ -41,12 +49,15 @@ from .types import (
     ArtifactMedia,
     ArtifactMediaType,
     ArtifactSlide,
+    AskResult,
     AudioArtifactUserState,
     ChatGoal,
+    ChatReference,
     ChatResponseLength,
     ChatSession,
     ChatSettings,
     Collection,
+    ConversationTurnKey,
     DiscoveryMode,
     DriveSourceStatus,
     FlashcardArtifactUserState,
@@ -55,6 +66,7 @@ from .types import (
     Label,
     MindMap,
     MindMapKind,
+    NextStepSuggestion,
     Note,
     Notebook,
     NotebookDescription,
@@ -366,6 +378,89 @@ def project_notebook_description(record: NotebookDescriptionRecord) -> NotebookD
     )
 
 
+def chat_reference_record(reference: ChatReference) -> ChatReferenceRecord:
+    """Copy a public citation into the neutral saved-note input shape."""
+    return ChatReferenceRecord(
+        source_id=reference.source_id,
+        citation_number=reference.citation_number,
+        cited_text=reference.cited_text,
+        start_char=reference.start_char,
+        end_char=reference.end_char,
+        chunk_id=reference.chunk_id,
+        passage_id=reference.passage_id,
+        score=reference.score,
+        fragment_start_char=reference.fragment_start_char,
+        fragment_end_char=reference.fragment_end_char,
+        answer_anchor_start=reference.answer_anchor_start,
+        answer_anchor_end=reference.answer_anchor_end,
+    )
+
+
+def project_chat_reference(record: ChatReferenceRecord) -> ChatReference:
+    """Construct a validated public citation from one neutral record."""
+    return ChatReference(
+        source_id=record.source_id,
+        citation_number=record.citation_number,
+        cited_text=record.cited_text,
+        start_char=record.start_char,
+        end_char=record.end_char,
+        chunk_id=record.chunk_id,
+        passage_id=record.passage_id,
+        score=record.score,
+        fragment_start_char=record.fragment_start_char,
+        fragment_end_char=record.fragment_end_char,
+        answer_anchor_start=record.answer_anchor_start,
+        answer_anchor_end=record.answer_anchor_end,
+    )
+
+
+def project_chat_ask_result(
+    record: ChatAskResultRecord,
+    *,
+    turn_number: int,
+    is_follow_up: bool,
+) -> AskResult:
+    """Build the unary public result without re-deriving document citation anchors."""
+    turn_key = record.turn_key
+    return AskResult(
+        answer=record.answer,
+        conversation_id=record.conversation_id,
+        turn_number=turn_number,
+        is_follow_up=is_follow_up,
+        references=[project_chat_reference(reference) for reference in record.references],
+        raw_response=record.raw_response,
+        answer_document=record.answer_document,
+        turn_key=(
+            ConversationTurnKey(turn_key.session_id, turn_key.turn_id, turn_key.turn_code)
+            if turn_key is not None
+            else None
+        ),
+        next_steps=[
+            NextStepSuggestion(item.question, item.type_code) for item in record.next_steps
+        ],
+    )
+
+
+def project_chat_settings(record: ChatSettingsRecord) -> ChatSettings:
+    """Project semantic setting labels onto the existing public enums."""
+    return ChatSettings(
+        goal=_CHAT_GOALS[record.goal],
+        response_length=_CHAT_RESPONSE_LENGTHS[record.response_length],
+        custom_prompt=record.custom_prompt,
+    )
+
+
+def project_chat_saved_note(record: ChatSavedNoteRecord) -> Note:
+    """Construct the mutable public note returned by save-answer."""
+    return Note(
+        id=record.id,
+        notebook_id=record.notebook_id,
+        title=record.title,
+        content=record.content,
+        created_at=record.created_at,
+    )
+
+
 def project_note(record: NoteRecord) -> Note:
     """Construct one public :class:`Note` from a neutral record."""
 
@@ -602,10 +697,31 @@ def project_share_status(record: ShareStatusRecord) -> ShareStatus:
     )
 
 
+def _thaw_chat_legacy(value: ChatLegacyValue) -> Any:
+    if isinstance(value, ChatLegacyMappingRecord):
+        return {key: _thaw_chat_legacy(item) for key, item in value.items}
+    if isinstance(value, ChatLegacySequenceRecord):
+        return [_thaw_chat_legacy(item) for item in value.items]
+    return value
+
+
+def project_chat_turns_legacy(result: ChatGetHistoryResult) -> Any:
+    """Reproduce the documented raw history envelope without leaking it from the backend."""
+    if not result.envelope_present:
+        return []
+    return [[_thaw_chat_legacy(turn.legacy_row) for turn in result.turns]]
+
+
 __all__ = [
     "project_account_limits",
+    "chat_reference_record",
     "project_artifact",
     "project_collection",
+    "project_chat_ask_result",
+    "project_chat_reference",
+    "project_chat_saved_note",
+    "project_chat_settings",
+    "project_chat_turns_legacy",
     "project_generation_status",
     "project_label",
     "project_mind_map",

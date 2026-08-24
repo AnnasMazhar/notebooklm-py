@@ -132,6 +132,15 @@ def test_shared_wiring_identities_hold_on_both_paths() -> None:
             f"{label}: the private WebRpcBackend must share the client's RpcExecutor"
         )
         assert (
+            getattr(getattr(client.chat, "_service", None), "_backend", _missing) is client._backend
+        ), f"{label}: chat must share the client-owned semantic backend"
+        assert (
+            getattr(client._backend, "_chat_transport", _missing) is client._composed.transport
+        ), f"{label}: chat.ask must use the client-owned runtime transport"
+        assert getattr(client._backend, "_chat_reqid", _missing) is client._collaborators.reqid, (
+            f"{label}: chat.ask must use the client-owned request-id counter"
+        )
+        assert (
             getattr(getattr(client.notebooks, "_read_service", None), "_backend", _missing)
             is client._backend
         ), f"{label}: notebook reads must share the client-owned semantic backend"

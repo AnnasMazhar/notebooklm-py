@@ -352,12 +352,9 @@ async def test_file_binding_preserves_path_callback_and_existing_upload_authorit
 
 
 @pytest.mark.asyncio
-async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback(monkeypatch) -> None:
+async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback() -> None:
     uploader = _Uploader()
     events: list[str] = []
-
-    uploader.live_cookies = lambda: None  # type: ignore[attr-defined]
-    uploader.authuser_value = lambda: "0"  # type: ignore[attr-defined]
 
     @asynccontextmanager
     async def gate():
@@ -368,15 +365,11 @@ async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback(mo
     uploader.get_download_semaphore = gate  # type: ignore[attr-defined]
 
     class _DriveService:
-        def __init__(self, *, fetch: object, add_file: object) -> None:
-            assert fetch is not None
-            assert add_file == uploader.add_file
-
         async def add_drive_file(self, notebook_id: str, document_id: str, **kwargs: Any) -> Source:
             events.append(f"route:{notebook_id}:{document_id}:{kwargs['title']}")
             return Source(id="drive-upload", title="Drive file")
 
-    monkeypatch.setattr("notebooklm._web.source_variants.DriveImportService", _DriveService)
+    uploader.create_drive_import_service = _DriveService  # type: ignore[attr-defined]
     result = await _web_backend(_RecordingExecutor(), uploader=uploader).invoke(
         SOURCE_ADD_FILE_DEF,
         SourceAddFileInput(

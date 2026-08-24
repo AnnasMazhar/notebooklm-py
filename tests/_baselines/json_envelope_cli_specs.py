@@ -318,7 +318,7 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "answer_document itself is removed from the CLI envelope"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)",
         ),
     },
@@ -337,7 +337,7 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "answer_anchor_start/end"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)",
         ),
     },
@@ -357,8 +357,8 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "produces cited_text; answer-document blocks also bound anchor validity"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def extract_text_passages",
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)",
         ),
     },
@@ -378,8 +378,8 @@ CLI_PROJECTION_SPECS: tuple[dict[str, object], ...] = (
             "thereby producing cited_text/ranges or validating answer anchors"
         ),
         "evidence": (
-            "notebooklm/_chat/wire.py:def extract_text_passages",
-            "notebooklm/_chat/wire.py:def attach_answer_anchors",
+            "notebooklm/_web/codec/chat_stream.py:def extract_text_passages",
+            "notebooklm/_web/codec/chat_stream.py:def attach_answer_anchors",
             "notebooklm/cli/chat_cmd.py:data = ask_result_view(result)",
         ),
     },

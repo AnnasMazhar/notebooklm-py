@@ -1545,7 +1545,7 @@ class TestGetHistoryErrorHandling:
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
                 client.chat,
-                "get_conversation_turns",
+                "_get_conversation_turn_records",
                 new_callable=AsyncMock,
                 side_effect=ChatError("API error"),
             ):
@@ -1567,7 +1567,7 @@ class TestGetHistoryErrorHandling:
         async with NotebookLMClient(auth_tokens) as client:
             with patch.object(
                 client.chat,
-                "get_conversation_turns",
+                "_get_conversation_turn_records",
                 new_callable=AsyncMock,
                 side_effect=NetworkError("connection error"),
             ):
@@ -1603,16 +1603,15 @@ class TestGetHistoryErrorHandling:
         from notebooklm.exceptions import UnknownRPCMethodError
 
         id_response = build_rpc_response(RPCMethod.GET_LAST_CONVERSATION_ID, [[["conv_001"]]])
+        turns_response = build_rpc_response(
+            RPCMethod.GET_CONVERSATION_TURNS,
+            ["not-the-turn-list"],
+        )
         httpx_mock.add_response(content=id_response.encode())
+        httpx_mock.add_response(content=turns_response.encode())
         async with NotebookLMClient(auth_tokens) as client:
-            with patch.object(
-                client.chat,
-                "get_conversation_turns",
-                new_callable=AsyncMock,
-                return_value=["not-the-turn-list"],
-            ):
-                with pytest.raises(UnknownRPCMethodError):
-                    await client.chat.get_history("nb_123")
+            with pytest.raises(UnknownRPCMethodError):
+                await client.chat.get_history("nb_123")
 
     @pytest.mark.asyncio
     async def test_get_history_reverses_turns(
@@ -2191,13 +2190,10 @@ class TestGetConversationIdNullRaw:
     ):
         """Test get_conversation_id returns None when rpc_call returns None (arc 231->230)."""
         async with NotebookLMClient(auth_tokens) as client:
-            # Patch the direct ``rpc`` collaborator on ChatAPI to return
-            # None (bypasses decode error). Wave 8 of session-decoupling
-            # (ADR-0014 Rule 2 Corollary) replaced the old facade with
-            # direct constructor injection of the underlying collaborators,
-            # so we reach the chat dispatch surface via ``client.chat._rpc``.
+            # Patch the shared executor behind the semantic web backend to
+            # return None (bypasses decode error).
             with patch.object(
-                client.chat._rpc,
+                client._backend._executor,
                 "rpc_call",
                 new_callable=AsyncMock,
                 return_value=None,

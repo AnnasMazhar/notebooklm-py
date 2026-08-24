@@ -24,6 +24,7 @@ import pytest
 from notebooklm._chat import ChatAPI
 from notebooklm._runtime.contracts import LoopGuard, RpcCaller
 from notebooklm.rpc import RPCMethod
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -42,13 +43,12 @@ def mock_rpc() -> MagicMock:
 @pytest.fixture
 def api(mock_rpc: MagicMock) -> ChatAPI:
     return ChatAPI(
-        rpc=mock_rpc,
-        transport=MagicMock(),
-        reqid=MagicMock(),
+        backend=build_web_backend(mock_rpc),
         # ``delete_conversation`` calls ``loop_guard.assert_bound_loop()`` up
         # front (#1225), so the guard needs a ``LoopGuard`` spec — a bare
         # ``MagicMock`` rejects ``assert_*`` attribute access as a typo guard.
         loop_guard=MagicMock(spec=LoopGuard),
+        notebooks=MagicMock(),
     )
 
 

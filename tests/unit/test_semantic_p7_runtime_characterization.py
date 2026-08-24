@@ -170,7 +170,7 @@ def test_rpc_executor_and_middleware_chain_ordering_invariants() -> None:
     assert client.sources._rpc is client._rpc_executor
     assert not hasattr(client.artifacts, "_rpc")
     assert client.artifacts._backend is client._backend
-    assert client.chat._rpc is client._rpc_executor
+    assert client.chat._service._backend is client._backend
 
     # Canonical middleware chain ordering per ADR-0009:
     # [Drain, Metrics, Semaphore, Retry, AuthRefresh, ErrorInjection, Tracing]
@@ -278,9 +278,9 @@ def test_constructor_option_routing_to_all_collaborators() -> None:
     assert client._collaborators.lifecycle._cookie_saver is custom_saver
     assert client._collaborators.lifecycle._cookie_rotator is custom_rotator
 
-    # 10. chat_timeout & chat_response_max_bytes -> ChatAPI
-    assert client.chat._chat_timeout == 200.0
-    assert client.chat._chat_response_max_bytes == 1024 * 1024
+    # 10. chat_timeout & chat_response_max_bytes -> chat backend binding
+    assert client._backend._chat_timeout == 200.0
+    assert client._backend._chat_response_max_bytes == 1024 * 1024
 
     # 11. import_research_timeout -> ResearchAPI
     assert client.research._import_research_timeout == 150.0

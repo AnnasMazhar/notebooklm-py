@@ -13,6 +13,8 @@ from .exceptions import (
     ArtifactFeatureUnavailableError,
     ArtifactNotFoundError,
     AuthError,
+    ChatError,
+    ChatResponseParseError,
     ClientError,
     CollectionError,
     CollectionNotFoundError,
@@ -258,6 +260,11 @@ def project_backend_error(error: BackendError) -> Exception:
 
     if reason is BackendErrorReason.IDEMPOTENCY_VARIANT:
         return _preserve_outcome(error, IdempotencyVariantError(error.message))
+
+    if reason is BackendErrorReason.CHAT:
+        return _preserve_outcome(error, ChatError(error.message))
+    if reason is BackendErrorReason.CHAT_RESPONSE_PARSE:
+        return _preserve_outcome(error, ChatResponseParseError(error.message))
 
     if reason is BackendErrorReason.NETWORK:
         return _preserve_outcome(

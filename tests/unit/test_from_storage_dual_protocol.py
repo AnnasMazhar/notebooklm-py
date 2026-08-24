@@ -105,7 +105,7 @@ class TestCanonicalAsyncWith:
             path=str(storage_file),
             chat_response_max_bytes=123456,
         ) as client:
-            assert client.chat._chat_response_max_bytes == 123456
+            assert client._backend._chat_response_max_bytes == 123456
 
 
 class TestLegacyAwaitForm:

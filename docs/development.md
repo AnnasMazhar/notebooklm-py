@@ -36,7 +36,8 @@ src/notebooklm/
 ├── _source/             # Private source services
 ├── _artifacts.py        # ArtifactsAPI implementation
 ├── _artifact/           # Private artifact services
-├── _chat/               # ChatAPI implementation (facade + chat helpers)
+├── _chat/               # Semantic ChatAPI facade/service + compatibility helpers
+├── _web/                # WebRpcBackend and native request/response codecs
 ├── _research.py         # ResearchAPI implementation
 ├── _notes.py            # NotesAPI implementation
 ├── _mind_map.py         # Private note-backed mind-map service

@@ -32,6 +32,7 @@ from notebooklm._chat import ChatAPI
 from notebooklm._runtime.contracts import RpcCaller
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import AskResult, ChatReference
+from tests._fixtures.web_backend import build_web_backend
 
 
 @pytest.fixture
@@ -60,9 +61,7 @@ def chat_api(mock_rpc: MagicMock) -> ChatAPI:
     """
     notebooks = MagicMock(get_source_ids=AsyncMock(return_value=[]))
     return ChatAPI(
-        rpc=mock_rpc,
-        transport=MagicMock(),
-        reqid=MagicMock(),
+        backend=build_web_backend(mock_rpc),
         loop_guard=MagicMock(),
         notebooks=notebooks,
     )

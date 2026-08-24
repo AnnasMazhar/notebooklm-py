@@ -197,12 +197,15 @@ def _chat_from_mock_core(mock_core, *, notebooks=None) -> ChatAPI:
     fixture's pre-wired ``mock_core.session_transport.perform_authed_post``
     for the transport entry point.
     """
+    backend = build_web_backend(
+        mock_core.rpc_executor,
+        chat_transport=mock_core.session_transport,
+        chat_reqid=mock_core,
+    )
     return ChatAPI(
-        rpc=mock_core.rpc_executor,
-        transport=mock_core.session_transport,
-        reqid=mock_core,
+        backend=backend,
         loop_guard=mock_core,
-        notebooks=notebooks,
+        notebooks=notebooks or MagicMock(),
     )
 
 

@@ -121,7 +121,7 @@ def test_inventory_covers_every_current_terminal_adapter_site() -> None:
 def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() -> None:
     rows = discover_private_dataclass_projection_paths()
 
-    assert len(rows) == 38
+    assert len(rows) == 36
     triples = {(row.private_model, row.field_path, row.public_model) for row in rows}
     assert (
         "notebooklm._app.source_mutations.SourceRenameResult",
@@ -144,12 +144,12 @@ def test_private_dto_catalog_covers_every_annotation_proven_public_model_path() 
         "notebooklm.types.Label",
     ) in triples
     assert (
-        "notebooklm._chat.api._PostedAsk",
+            "notebooklm._chat_records.ChatAskResultRecord",
         "answer_document",
         "notebooklm._types.documents.StructuredDocument",
     ) in triples
     assert (
-        "notebooklm._chat.wire.StreamingChatParseResult",
+        "notebooklm._web.codec.chat_stream.StreamingChatParseResult",
         "references[]",
         "notebooklm.types.ChatReference",
     ) in triples
@@ -1320,7 +1320,7 @@ def test_checked_in_reachability_allocations_are_exact() -> None:
         _source_root(), known_projection_ids=_allocation_projection_ids()
     )
     assert contract["site_count"] == 350
-    assert len(contract["private_dataclass_projection_paths"]) == 38
+    assert len(contract["private_dataclass_projection_paths"]) == 36
     assert contract["transitive_helper_graph"] == {
         "schema_version": 1,
         "root_count": 210,

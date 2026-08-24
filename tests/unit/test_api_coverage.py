@@ -68,10 +68,9 @@ class TestConfigureChat:
         """
         core = make_fake_core(rpc_call=rpc_call)
         return ChatAPI(
-            rpc=core.rpc_executor,
-            transport=MagicMock(),
-            reqid=MagicMock(),
+            backend=build_web_backend(core.rpc_executor),
             loop_guard=MagicMock(spec=LoopGuard),
+            notebooks=MagicMock(),
         )
 
     @pytest.mark.asyncio

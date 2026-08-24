@@ -331,6 +331,96 @@
         }
       ]
     },
+    "chat.ask": {
+      "call_policy": "stream",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "default source-set read"
+        },
+        {
+          "rpc_method": "GET_LAST_CONVERSATION_ID",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "conversation resolution before or after the streamed request"
+        }
+      ]
+    },
+    "chat.configure": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "rpc_method": "GET_NOTEBOOK",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "chat-settings read"
+        },
+        {
+          "rpc_method": "RENAME_NOTEBOOK",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "chat-settings set-op"
+        }
+      ]
+    },
+    "chat.delete_history": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "rpc_method": "DELETE_CONVERSATION",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "idempotent conversation-turn delete"
+        }
+      ]
+    },
+    "chat.get_conversation": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "rpc_method": "GET_LAST_CONVERSATION_ID",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "most-recent conversation read"
+        }
+      ]
+    },
+    "chat.get_history": {
+      "call_policy": "read",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "rpc_method": "GET_LAST_CONVERSATION_ID",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "optional most-recent conversation resolution"
+        },
+        {
+          "rpc_method": "GET_CONVERSATION_TURNS",
+          "variant": null,
+          "idempotency_policy": "idempotent_set_op",
+          "role": "conversation-turn collection read"
+        }
+      ]
+    },
+    "chat.save_note": {
+      "call_policy": "mutation",
+      "known_divergence": null,
+      "native_bindings": [
+        {
+          "rpc_method": "CREATE_NOTE",
+          "variant": "saved_from_chat",
+          "idempotency_policy": "non_idempotent_no_retry",
+          "role": "non-idempotent citation-rich note allocation"
+        }
+      ]
+    },
     "collection.create": {
       "call_policy": "mutation",
       "known_divergence": null,
@@ -1286,6 +1376,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1351,6 +1442,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1416,6 +1508,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1481,6 +1574,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1549,6 +1643,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_generated_tree",
         "_web/codec/notes.py:decode_created_note",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1626,6 +1721,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1692,6 +1788,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1758,6 +1855,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -1824,6 +1922,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/studio_documents.py:decode_generation_status",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -2164,14 +2263,15 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
         {
           "transport_kind": "rpc",
           "binding": "GET_LAST_CONVERSATION_ID:<default>",
-          "site": "_chat/api.py:ChatAPI.get_conversation_id",
-          "discriminator": "pre/post streamed query conversation id"
+          "site": "_web/chat.py:ChatWebHandlers._chat_conversation_id",
+          "discriminator": "post-stream resolution when no server-issued id is already known"
         },
         {
           "transport_kind": "rpc",
@@ -2182,8 +2282,8 @@
         {
           "transport_kind": "stream",
           "binding": "streamed_query",
-          "site": "_chat/transport.py:chat_aware_authed_post",
-          "discriminator": "GenerateFreeFormStreamed POST; response bytes are incrementally buffered"
+          "site": "_web/chat.py:ChatWebHandlers._chat_ask",
+          "discriminator": "adapter-owned GenerateFreeFormStreamed phase; bytes are incrementally buffered"
         }
       ],
       "composite_behavior": "Two-phase all-or-nothing operation: streamed query first, then conversation-id RPC. Citation anchors index answer_document.text, raw_response stays truncated, the byte cap fires pre-decode, the loop guard precedes the lock, and missing conversation id logs the full answer before ChatError. Cancellation between phases may leave an undiscoverable turn.",
@@ -2229,20 +2329,21 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
         {
           "transport_kind": "rpc",
           "binding": "GET_NOTEBOOK:<default>",
-          "site": "_chat/api.py:ChatAPI.get_settings",
-          "discriminator": "public=chat.get_settings only"
+          "site": "_web/chat.py:ChatWebHandlers._chat_configure",
+          "discriminator": "action=GET only"
         },
         {
           "transport_kind": "rpc",
           "binding": "RENAME_NOTEBOOK:<default>",
-          "site": "_chat/api.py:ChatAPI.configure",
-          "discriminator": "chat settings mutation payload"
+          "site": "_web/chat.py:ChatWebHandlers._chat_configure",
+          "discriminator": "action=SET"
         }
       ],
       "composite_behavior": "Reads or mutates chat settings embedded in the notebook payload.",
@@ -2259,7 +2360,7 @@
           "unit": "public_call",
           "condition": "always for get_settings",
           "authority_sites": [
-            "_chat/api.py:ChatAPI.get_settings"
+            "_web/chat.py:ChatWebHandlers._chat_configure"
           ]
         },
         {
@@ -2294,7 +2395,7 @@
         {
           "transport_kind": "rpc",
           "binding": "DELETE_CONVERSATION:<default>",
-          "site": "_chat/api.py:ChatAPI.delete_conversation",
+          "site": "_web/chat.py:ChatWebHandlers._chat_delete_history",
           "discriminator": "direct semantic binding"
         }
       ],
@@ -2326,7 +2427,7 @@
         {
           "transport_kind": "rpc",
           "binding": "GET_LAST_CONVERSATION_ID:<default>",
-          "site": "_chat/api.py:ChatAPI.get_conversation_id",
+          "site": "_web/chat.py:ChatWebHandlers._chat_conversation_id",
           "discriminator": "public=chat.get_conversation_id"
         }
       ],
@@ -2355,19 +2456,20 @@
       ],
       "web_paths": [],
       "response_decoders_projectors": [
-        "_row_adapters/chat.py:<module>"
+        "_row_adapters/chat.py:<module>",
+        "_web/codec/chat_stream.py:_extract_next_turn_content"
       ],
       "execution_authorities": [
         {
           "transport_kind": "rpc",
           "binding": "GET_CONVERSATION_TURNS:<default>",
-          "site": "_chat/api.py:ChatAPI.get_conversation_turns",
+          "site": "_web/chat.py:ChatWebHandlers._chat_get_history",
           "discriminator": "direct semantic binding"
         },
         {
           "transport_kind": "rpc",
           "binding": "GET_LAST_CONVERSATION_ID:<default>",
-          "site": "_chat/api.py:ChatAPI.get_conversation_id",
+          "site": "_web/chat.py:ChatWebHandlers._chat_conversation_id",
           "discriminator": "conversation_id is omitted"
         }
       ],
@@ -2400,7 +2502,7 @@
         {
           "transport_kind": "rpc",
           "binding": "CREATE_NOTE:saved_from_chat",
-          "site": "_chat/notes.py:save_chat_answer_as_note",
+          "site": "_web/chat.py:ChatWebHandlers._chat_save_note",
           "discriminator": "direct semantic binding"
         }
       ],
@@ -2822,6 +2924,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -2966,6 +3069,7 @@
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
         "_web/codec/artifacts.py:decode_interactive_content",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_created_interactive_id",
         "_web/codec/mind_maps.py:extract_interactive_tree_leaf",
         "_web/codec/studio_documents.py:decode_generation_status",
@@ -3040,6 +3144,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/mind_maps.py:decode_generated_tree",
         "_web/codec/notes.py:decode_created_note",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -3436,6 +3541,7 @@
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
         "_types/notebooks.py:<module>",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/notebooks.py:<module>",
         "_web/codec/settings.py:decode_get_user_settings",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
@@ -3576,6 +3682,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -3668,6 +3775,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -3753,6 +3861,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids",
         "_web/codec/suggestions.py:decode_prompt_suggestions"
       ],
@@ -3846,6 +3955,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -3965,6 +4075,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -4399,6 +4510,7 @@
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
         "_row_adapters/sources.py:unwrap_add_source_rows",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/sources.py:decode_add_source_records",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
@@ -4470,6 +4582,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/settings.py:decode_get_user_settings",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
@@ -4566,6 +4679,7 @@
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
         "_row_adapters/sources.py:unwrap_add_source_rows",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/sources.py:decode_add_source_records",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
@@ -4626,6 +4740,7 @@
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
         "_row_adapters/sources.py:unwrap_add_source_rows",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/sources.py:decode_add_source_records",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
@@ -4693,6 +4808,7 @@
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
         "_row_adapters/sources.py:unwrap_add_source_rows",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/sources.py:decode_add_source_records",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
@@ -4814,6 +4930,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -4931,6 +5048,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -5013,6 +5131,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -5073,6 +5192,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "execution_authorities": [
@@ -5649,7 +5769,7 @@
         "notebook+conversation-turn"
       ],
       "execution_authorities": [
-        "_chat/notes.py:save_chat_answer_as_note"
+        "_web/chat.py:ChatWebHandlers._chat_save_note"
       ],
       "response_decoders": [
         "_web/codec/notes.py:decode_created_note"
@@ -5780,7 +5900,7 @@
         "notebook+conversation"
       ],
       "execution_authorities": [
-        "_chat/api.py:ChatAPI.delete_conversation"
+        "_web/chat.py:ChatWebHandlers._chat_delete_history"
       ],
       "response_decoders": [],
       "response_projectors": [],
@@ -6087,10 +6207,11 @@
         "notebook+conversation"
       ],
       "execution_authorities": [
-        "_chat/api.py:ChatAPI.get_conversation_turns"
+        "_web/chat.py:ChatWebHandlers._chat_get_history"
       ],
       "response_decoders": [
-        "_row_adapters/chat.py:<module>"
+        "_row_adapters/chat.py:<module>",
+        "_web/codec/chat_stream.py:_extract_next_turn_content"
       ],
       "response_projectors": [],
       "golden_disposition": "golden_covered",
@@ -6193,7 +6314,7 @@
         "notebook+conversation+source-set"
       ],
       "execution_authorities": [
-        "_chat/api.py:ChatAPI.get_conversation_id"
+        "_web/chat.py:ChatWebHandlers._chat_conversation_id"
       ],
       "response_decoders": [],
       "response_projectors": [],
@@ -6290,7 +6411,6 @@
         "notebook+upload-session"
       ],
       "execution_authorities": [
-        "_chat/api.py:ChatAPI.get_settings",
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
         "_web/backend.py:WebRpcBackend._mind_map_generate_interactive",
@@ -6299,6 +6419,7 @@
         "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
+        "_web/chat.py:ChatWebHandlers._chat_configure",
         "_web/settings_suggestions.py:SettingsSuggestionWebHandlers._notebook_suggest_prompts",
         "_web/studio_data.py:StudioDataWebHandlers._data_source_ids",
         "_web/studio_documents.py:StudioDocumentWebHandlers._document_source_ids",
@@ -6311,6 +6432,7 @@
         "_row_adapters/sources.py:SourceRow",
         "_row_adapters/sources.py:SourceRow.from_entry",
         "_row_adapters/sources.py:SourceRow.from_unknown_shape",
+        "_web/codec/chat.py:decode_get_settings_result",
         "_web/codec/suggestions.py:decode_prompt_source_ids"
       ],
       "response_projectors": [],
@@ -7077,8 +7199,8 @@
         "notebook"
       ],
       "execution_authorities": [
-        "_chat/api.py:ChatAPI.configure",
         "_web/backend.py:WebRpcBackend._notebook_update",
+        "_web/chat.py:ChatWebHandlers._chat_configure",
         "_web/sharing.py:SharingWebHandlers._sharing_set_view_level"
       ],
       "response_decoders": [],

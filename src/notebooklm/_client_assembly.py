@@ -341,6 +341,10 @@ def _assemble_client(
         internals.executor,
         transport_factory=internals.web_transport_factory,
         source_uploader=source_uploader,
+        chat_transport=client._composed.transport,
+        chat_reqid=internals.collaborators.reqid,
+        chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
+        chat_response_max_bytes=chat_response_max_bytes,
     )
     # Hold the uploader as a first-class client attribute so the
     # open-time loop-affinity reset (issue #1196 upload variant) can
@@ -384,18 +388,11 @@ def _assemble_client(
         storage_path=storage_path,
         _backend=client._backend,
     )
-    # ChatAPI (per ADR-0014) takes its
-    # four direct collaborators (RpcCaller, RuntimeTransport,
-    # ReqidCounter, LoopGuard) by keyword argument. The transport is
-    # sourced from ``client._composed``; other runtime fields come from
-    # the :class:`ClientInternals` returned by the composition root.
+    # P6.1: ChatAPI keeps loop-bound orchestration and client-local state, but
+    # delegates all six semantic operations to the client-owned backend.
     client.chat = ChatAPI(
-        rpc=internals.executor,
-        transport=client._composed.transport,
-        reqid=internals.collaborators.reqid,
+        backend=client._backend,
         loop_guard=internals.collaborators.lifecycle,
-        chat_timeout=resolve_chat_read_timeout(chat_timeout, timeout),
-        chat_response_max_bytes=chat_response_max_bytes,
         notebooks=client.notebooks,
         created_chat_sessions=client.notebooks,
     )

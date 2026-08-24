@@ -90,6 +90,7 @@ from ._upload_decode import (  # noqa: F401
     raise_for_upload_status,
     raise_partial_upload_failure,
 )
+from .drive_import import DriveFetcher, DriveImportService
 from .listing import SourceLister
 from .polling import SourcePoller
 from .upload_payloads import (
@@ -330,6 +331,16 @@ class SourceUploadPipeline(LoopBoundPrimitive):
     def authuser_value(self) -> str:
         """Account-routing value for Google URLs (#1884), matching the upload leg."""
         return format_authuser_value(self._auth.authuser, self._auth.account_email)
+
+    def create_drive_import_service(self) -> DriveImportService:
+        """Build the Drive download bridge without exposing credentials to the web backend."""
+        return DriveImportService(
+            fetch=DriveFetcher(
+                cookies_provider=self.live_cookies,
+                authuser=self.authuser_value(),
+            ),
+            add_file=self.add_file,
+        )
 
     async def add_file(
         self,

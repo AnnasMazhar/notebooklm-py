@@ -1731,8 +1731,10 @@ params = [
 
 ### RPC: CREATE_NOTE (saved-from-chat variant) (CYK0Xb)
 
-**Source:** `_chat/notes.py::save_chat_answer_as_note()` (canonical owner) —
-exposed publicly as `ChatAPI.save_answer_as_note(...)`.
+**Source:** `_web/backend.py::WebRpcBackend._chat_save_note()` (execution
+authority) with `_web/codec/chat_saved_note.py::build_save_chat_as_note_params()`
+as the seven-element encoder; exposed publicly as
+`ChatAPI.save_answer_as_note(...)` through the semantic chat service.
 
 **Note:** This is the same RPC method ID as plain CREATE_NOTE above, but uses a **7-element** params array (vs the 5-element blank-note form) and **mode flag `[2]`** to tell the server the note carries a saved chat answer. The server stores per-citation source-passage metadata so `[N]` markers in the answer render as hover-anchored links in the NotebookLM web UI. No follow-up UPDATE_NOTE is needed — this is a single round-trip.
 
@@ -1800,7 +1802,7 @@ params = [
 - The server appears to apply a "smart title" pass for `[2]`-mode notes — the captured response title differed from the captured request title (the request sent `"New Saved Note"`; the response stored `"Le Verger de la Connaissance : Le Cas de la Pomme"`). `ChatAPI.save_answer_as_note()` surfaces the server-stored title in the returned `Note`.
 
 **Known gaps**:
-- The `passage_id` UUID at slot `[3][0][5][0][0]` does NOT appear in the streaming chat response shape we currently parse. `_build_source_passage_descriptor` falls back to `chunk_id` as a placeholder when `ChatReference.passage_id` is unset (which is always, in production today). Empirically the server accepts this and the web UI still renders hover anchors. If a future capture reveals where this UUID comes from, populate `ChatReference.passage_id` in `_chat/wire.py::parse_single_citation()` and the encoder will use it automatically.
+- The `passage_id` UUID at slot `[3][0][5][0][0]` does NOT appear in the streaming chat response shape we currently parse. `_build_source_passage_descriptor` falls back to `chunk_id` as a placeholder when `ChatReference.passage_id` is unset (which is always, in production today). Empirically the server accepts this and the web UI still renders hover anchors. If a future capture reveals where this UUID comes from, populate the neutral reference in `_web/codec/chat_stream.py::parse_single_citation()` and the encoder will use it automatically.
 - Multi-citation segmentation uses a *cumulative-span* heuristic (each `[N]` anchors `clean_text[0..position]` rather than a per-segment span). This matches the captured single-citation payload exactly but is unverified against multi-citation captures. See issue #660 PR description.
 
 ### RPC: UPDATE_NOTE (cYAfTb)
@@ -3037,7 +3039,8 @@ A sweep of all 141 cassettes found 397 `wrb.fr` frames, only 5 of them
 null-result — and all 5 carried one of the shapes above. Four are `batchexecute`
 RPCs, across three method ids (`SHARE_NOTEBOOK` ×2, `SHARE_ARTIFACT`,
 `REMOVE_RECENTLY_VIEWED`); the fifth is the streamed-chat `[3]` from #1472,
-which carries no rpc id and is decoded by `_chat/wire.py`, not `decode_response`.
+which carries no rpc id and is decoded by `_web/codec/chat_stream.py`, not
+`decode_response`.
 
 **Open question.** Only `REMOVE_RECENTLY_VIEWED`'s tolerance has ever been
 reasoned about (a cosmetic no-op). Whether the two share rejections are benign

@@ -35,16 +35,16 @@ from typing import Any
 
 import pytest
 
-from notebooklm._chat.wire import (
+from notebooklm._row_adapters.chat import AnswerRow, CitationDetail, CitationRow
+from notebooklm._row_adapters.documents import build_blocks, build_document
+from notebooklm._types import documents as documents_types
+from notebooklm._web.codec.chat_stream import (
     attach_answer_anchors,
     extract_fragment_range,
     extract_text_passages,
     parse_citations,
     parse_streaming_chat_response,
 )
-from notebooklm._row_adapters.chat import AnswerRow, CitationDetail, CitationRow
-from notebooklm._row_adapters.documents import build_blocks, build_document
-from notebooklm._types import documents as documents_types
 from notebooklm.types import (
     BlockKind,
     BlockStyle,

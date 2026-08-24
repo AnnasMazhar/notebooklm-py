@@ -120,7 +120,7 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         ("_notebooks.py:NotebooksAPI.get_raw", "source_ids is None")
     ),
     (Operation.CHAT_CONFIGURE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_chat/api.py:ChatAPI.get_settings", "public=chat.get_settings only")
+        ("_web/chat.py:ChatWebHandlers._chat_configure", "action=GET only")
     ),
     (Operation.RESEARCH_IMPORT_VERIFY, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_source/listing.py:SourceLister.list", "pre-import baseline and verification probes")
@@ -234,8 +234,8 @@ NON_RPC_AUTHORITY_RULES: Mapping[Operation, tuple[tuple[str, str, str, str], ...
         (
             "stream",
             "streamed_query",
-            "_chat/transport.py:chat_aware_authed_post",
-            "GenerateFreeFormStreamed POST; response bytes are incrementally buffered",
+            "_web/chat.py:ChatWebHandlers._chat_ask",
+            "adapter-owned GenerateFreeFormStreamed phase; bytes are incrementally buffered",
         ),
     ),
     Operation.SOURCE_ADD_FILE: (
@@ -277,7 +277,7 @@ NON_RPC_AUTHORITY_RULES: Mapping[Operation, tuple[tuple[str, str, str, str], ...
 # Every manually allocated non-RPC authority must contain these transport calls,
 # and every contract row must be allocated to exactly one semantic operation.
 NON_RPC_SOURCE_CONTRACTS: Mapping[str, tuple[tuple[str, ...], ...]] = {
-    "_chat/transport.py:chat_aware_authed_post": (("perform_authed_post",),),
+    "_web/chat.py:ChatWebHandlers._chat_ask": (("chat_aware_authed_post",),),
     "_source/drive_import.py:DriveFetcher._request": (("stream",),),
     "_source/upload.py:SourceUploadPipeline.start_resumable_upload": (("post",),),
     "_source/upload.py:SourceUploadPipeline.upload_file_streaming._do_finalize": (
@@ -510,7 +510,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "always for get_settings",
-            ("_chat/api.py:ChatAPI.get_settings",),
+            ("_web/chat.py:ChatWebHandlers._chat_configure",),
         ),
         RecencyRule(
             _p("chat", "configure", "set_mode"),
@@ -688,7 +688,7 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/backend.py:WebRpcBackend._notebook_update", "title|emoji mutation")
         ),
         (Operation.CHAT_CONFIGURE, _b(RPCMethod.RENAME_NOTEBOOK)): _rules(
-            ("_chat/api.py:ChatAPI.configure", "chat settings mutation payload")
+            ("_web/chat.py:ChatWebHandlers._chat_configure", "action=SET")
         ),
         (Operation.SHARING_SET_VIEW_LEVEL, _b(RPCMethod.RENAME_NOTEBOOK)): _rules(
             (
@@ -810,13 +810,22 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_web/backend.py:WebRpcBackend._mind_map_get", "wait=True post-generation tree")
         ),
         (Operation.CHAT_ASK, _b(RPCMethod.GET_LAST_CONVERSATION_ID)): _rules(
-            ("_chat/api.py:ChatAPI.get_conversation_id", "pre/post streamed query conversation id")
+            (
+                "_web/chat.py:ChatWebHandlers._chat_conversation_id",
+                "post-stream resolution when no server-issued id is already known",
+            )
         ),
         (Operation.CHAT_GET_CONVERSATION, _b(RPCMethod.GET_LAST_CONVERSATION_ID)): _rules(
-            ("_chat/api.py:ChatAPI.get_conversation_id", "public=chat.get_conversation_id")
+            (
+                "_web/chat.py:ChatWebHandlers._chat_conversation_id",
+                "public=chat.get_conversation_id",
+            )
         ),
         (Operation.CHAT_GET_HISTORY, _b(RPCMethod.GET_LAST_CONVERSATION_ID)): _rules(
-            ("_chat/api.py:ChatAPI.get_conversation_id", "conversation_id is omitted")
+            (
+                "_web/chat.py:ChatWebHandlers._chat_conversation_id",
+                "conversation_id is omitted",
+            )
         ),
         (Operation.NOTE_LIST, _b(RPCMethod.GET_NOTES_AND_MIND_MAPS)): _rules(
             ("_web/backend.py:WebRpcBackend._note_list", "filter kind=NOTE")

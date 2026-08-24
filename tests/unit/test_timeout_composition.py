@@ -30,7 +30,6 @@ from types import SimpleNamespace
 import pytest
 
 from notebooklm import NotebookLMClient
-from notebooklm._chat.api import ChatAPI
 from notebooklm._idempotency import (
     IDEMPOTENCY_REGISTRY,
     resolve_effective_disable_internal_retries,
@@ -49,6 +48,7 @@ from notebooklm._runtime.config import (
     resolve_chat_read_timeout,
 )
 from notebooklm.rpc import RPCMethod
+from tests._fixtures.web_backend import build_web_backend
 
 #: batchexecute puts the RPC id in the query string (``?rpcids=…``), so it
 #: identifies the IMPORT_RESEARCH POST among everything else a client sends.
@@ -189,14 +189,14 @@ class TestConstructorWiring:
     def test_default_client_keeps_the_builtin_windows(self, auth_tokens):
         client = NotebookLMClient(auth_tokens)
 
-        assert client.chat._chat_timeout == DEFAULT_CHAT_TIMEOUT
+        assert client._backend._chat_timeout == DEFAULT_CHAT_TIMEOUT
         assert client.research._base_timeout == DEFAULT_TIMEOUT
         assert client.research._import_research_timeout is AUTO_READ_TIMEOUT
 
     def test_configured_timeout_reaches_both_surfaces(self, auth_tokens):
         client = NotebookLMClient(auth_tokens, timeout=600.0)
 
-        assert client.chat._chat_timeout == 600.0
+        assert client._backend._chat_timeout == 600.0
         assert client.research._base_timeout == 600.0
 
     def test_import_research_timeout_kwarg_is_forwarded(self, auth_tokens):
@@ -208,13 +208,13 @@ class TestConstructorWiring:
         # A swap in the assembly wiring would otherwise pass every other test
         # here, since both knobs are plumbed through the same function.
         chat_only = NotebookLMClient(auth_tokens, timeout=600.0, chat_timeout=10.0)
-        assert chat_only.chat._chat_timeout == 10.0
+        assert chat_only._backend._chat_timeout == 10.0
         assert chat_only.research._import_research_timeout is AUTO_READ_TIMEOUT
         assert chat_only.research._base_timeout == 600.0
 
         import_only = NotebookLMClient(auth_tokens, import_research_timeout=900.0)
         assert import_only.research._import_research_timeout == 900.0
-        assert import_only.chat._chat_timeout == DEFAULT_CHAT_TIMEOUT
+        assert import_only._backend._chat_timeout == DEFAULT_CHAT_TIMEOUT
 
 
 class TestEffectiveWireTimeout:
@@ -325,7 +325,7 @@ class TestRejectsUnusableWindows:
         client = NotebookLMClient(auth_tokens, **{kwarg: None})
 
         resolved = (
-            client.chat._chat_timeout
+            client._backend._chat_timeout
             if kwarg == "chat_timeout"
             else client.research._import_research_timeout
         )
@@ -340,11 +340,8 @@ class TestRejectsUnusableWindows:
         real diagnostic. Fail at the boundary instead.
         """
         with pytest.raises(TypeError, match="AUTO_READ_TIMEOUT"):
-            ChatAPI(
-                rpc=SimpleNamespace(rpc_call=None),
-                transport=SimpleNamespace(),
-                reqid=SimpleNamespace(),
-                loop_guard=SimpleNamespace(assert_bound_loop=lambda: None),
+            build_web_backend(
+                SimpleNamespace(rpc_call=None),
                 chat_timeout=AUTO_READ_TIMEOUT,
             )
 
@@ -465,6 +462,6 @@ async def test_from_storage_carries_the_composition(tmp_path, httpx_mock):
     async with NotebookLMClient.from_storage(
         path=str(_write_storage_state(tmp_path)), timeout=600.0
     ) as client:
-        assert client.chat._chat_timeout == 600.0
+        assert client._backend._chat_timeout == 600.0
         assert client.research._base_timeout == 600.0
         assert client.research._import_research_timeout is AUTO_READ_TIMEOUT
