@@ -72,11 +72,13 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
+from unittest.mock import AsyncMock
 
 import pytest
 import yaml
 
 from notebooklm import NotebookLMClient
+from notebooklm._records import ArtifactRecord
 from notebooklm.rpc import RPCMethod
 from tests.integration.conftest import get_vcr_auth, skip_no_cassettes
 from tests.vcr_config import notebooklm_vcr
@@ -174,19 +176,27 @@ class TestPollingReplay:
             assert final_status is not None
             assert final_status.is_complete or final_status.is_failed
 
-            # 4. Rename wire leg — the historical cassette predates the
-            #    semantic facade's mandatory post-mutation catalog read. Keep
-            #    the recording truthful (one recorded RENAME_ARTIFACT and no
-            #    invented LIST_ARTIFACTS response) by replaying that interaction
-            #    through the supported raw-RPC escape hatch. Facade rename's
-            #    typed preflight/readback is covered by the semantic management
-            #    and web-backend suites.
-            renamed = await client.rpc_call(
-                RPCMethod.RENAME_ARTIFACT,
-                [[task_id, "Renamed VCR Test"], [["title"]]],
-                allow_null=True,
+            # 4. Exercise the public rename facade and its real recorded wire
+            #    mutation. The historical cassette has no post-mutation catalog
+            #    read, so replace only that leaf with the artifact already
+            #    proven by the polling phase above.
+            client._backend._artifact_catalog_records = AsyncMock(  # type: ignore[method-assign]
+                return_value=(
+                    ArtifactRecord(
+                        task_id,
+                        "Renamed VCR Test",
+                        "flashcards",
+                        "completed",
+                    ),
+                )
             )
-            assert renamed[:2] == [task_id, "Renamed VCR Test"]
+            await client.artifacts.rename(
+                MUTABLE_NOTEBOOK_ID,
+                task_id,
+                "Renamed VCR Test",
+                return_object=False,
+            )
+            client._backend._artifact_catalog_records.assert_awaited_once()  # type: ignore[attr-defined]
 
     def test_cassette_has_multiple_polling_interactions(self) -> None:
         """The cassette must capture a real polling progression.

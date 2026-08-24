@@ -316,6 +316,7 @@ class SourceAddFileResult:
 
     source: SourceRecord
     transient_error_types: tuple[int | None, ...] | None = None
+    deferred_title: str | None = field(default=None, repr=False)
 
 
 @dataclass(frozen=True, slots=True)

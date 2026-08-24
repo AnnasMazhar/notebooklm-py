@@ -866,7 +866,7 @@ class SourcesAPI:
                         timeout=wait_timeout,
                         transient_error_types=result.transient_error_types,
                     )
-                requested_title = title.strip() if title else ""
+                requested_title = title.strip() if title else (result.deferred_title or "")
                 if requested_title and source.title != requested_title:
                     try:
                         finalized = await self._require_source_service().finalize_file_title(

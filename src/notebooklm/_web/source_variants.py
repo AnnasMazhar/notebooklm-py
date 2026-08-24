@@ -719,6 +719,8 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                     operation=Operation.SOURCE_ADD_FILE,
                 )
 
+            deferred_title: str | None = None
+
             async def add_downloaded_file(
                 notebook_id: str,
                 file_path: Any,
@@ -727,11 +729,19 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                 wait: bool,
                 wait_timeout: float,
             ) -> Source:
-                nonlocal transient_error_types
+                nonlocal deferred_title, transient_error_types
+                upload_title = title
+                if value.wait:
+                    # DriveImportService resolves a missing public title to the
+                    # Drive filename. Retain that choice for the facade-owned
+                    # post-readiness rename, but do not let the upload pipeline
+                    # perform its own registration wait + rename first.
+                    deferred_title = title.strip() if title else None
+                    upload_title = None
                 upload_result = await uploader._add_file_result(
                     notebook_id,
                     file_path,
-                    title=title,
+                    title=upload_title,
                     wait=wait,
                     wait_timeout=wait_timeout,
                 )
@@ -749,7 +759,11 @@ class SourceVariantWebHandlers(StudioFacadeWebHandlers):
                     wait=False,
                     wait_timeout=value.wait_timeout,
                 )
-        return SourceAddFileResult(_source_record(source), transient_error_types)
+        return SourceAddFileResult(
+            _source_record(source),
+            transient_error_types,
+            deferred_title if value.kind is SourceFileInputKind.DRIVE_DOWNLOAD else None,
+        )
 
     async def _source_file_limit(self) -> int | None:
         result = await self._rpc_call(

@@ -28,6 +28,7 @@ from notebooklm._records import (
     SourceAddFailureKind,
     SourceAddFailureRecord,
     SourceAddFileInput,
+    SourceAddFileResult,
     SourceAddTextInput,
     SourceAddTextResult,
     SourceAddUrlBatchInput,
@@ -562,3 +563,111 @@ async def test_drive_download_variant_uses_dedicated_gate_and_upload_callback() 
 
     assert result.source.id == "drive-upload"
     assert events == ["enter", "route:nb:drive-id:Chosen", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_waited_drive_download_defers_the_drive_filename_without_an_inner_wait() -> None:
+    uploader = _Uploader()
+
+    @asynccontextmanager
+    async def gate():
+        yield
+
+    uploader.get_download_semaphore = gate  # type: ignore[attr-defined]
+
+    class _DriveService:
+        def __init__(self, *, add_file: Any) -> None:
+            self._add_file = add_file
+
+        async def add_drive_file(
+            self,
+            notebook_id: str,
+            _document_id: str,
+            *,
+            title: str | None,
+            wait: bool,
+            wait_timeout: float,
+        ) -> Source:
+            return await self._add_file(
+                notebook_id,
+                Path("/tmp/nlm-drive-random.pdf"),
+                title=title or "Real Drive Name.pdf",
+                wait=wait,
+                wait_timeout=wait_timeout,
+            )
+
+    uploader.create_drive_import_service = lambda *, add_file: _DriveService(  # type: ignore[attr-defined]
+        add_file=add_file
+    )
+
+    result = await _web_backend(_RecordingExecutor(), uploader=uploader).invoke(
+        SOURCE_ADD_FILE_DEF,
+        SourceAddFileInput(
+            "nb",
+            SourceFileInputKind.DRIVE_DOWNLOAD,
+            document_id="drive-id",
+            wait=True,
+            wait_timeout=17.0,
+        ),
+        deadline=None,
+    )
+
+    assert result.deferred_title == "Real Drive Name.pdf"
+    assert uploader.calls == [
+        (
+            "nb",
+            Path("/tmp/nlm-drive-random.pdf"),
+            {"title": None, "wait": False, "wait_timeout": 17.0},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("public_title", "expected_title"),
+    [(None, "Real Drive Name.pdf"), ("  Chosen  ", "Chosen")],
+)
+async def test_waited_drive_download_facade_waits_and_finalizes_exactly_once(
+    public_title: str | None,
+    expected_title: str,
+) -> None:
+    initial = SourceAddFileResult(
+        SourceRecord("drive", "nlm-drive-random.pdf", status="processing"),
+        (),
+        "Real Drive Name.pdf",
+    )
+    backend = RecordingBackend()
+    backend.set_result(SOURCE_ADD_FILE_DEF, initial)
+    api = SourcesAPI(MagicMock(), uploader=MagicMock(), _backend=backend)
+    service = MagicMock()
+    service.add_drive_file = AsyncMock(return_value=initial)
+    ready = Source(id="drive", title="nlm-drive-random.pdf", status=SourceStatus.READY)
+    api.wait_until_ready = AsyncMock(return_value=ready)  # type: ignore[method-assign]
+    finalized = SourceAddFileResult(SourceRecord("drive", expected_title, status="ready"))
+    service.finalize_file_title = AsyncMock(return_value=finalized)
+    api._source_service = service
+
+    result = await api.add_drive_file(
+        "nb",
+        "drive-id",
+        title=public_title,
+        wait=True,
+        wait_timeout=23.0,
+    )
+
+    assert result.title == expected_title
+    api.wait_until_ready.assert_awaited_once_with(  # type: ignore[attr-defined]
+        "nb", "drive", timeout=23.0, transient_error_types=()
+    )
+    service.add_drive_file.assert_awaited_once_with(
+        "nb",
+        "drive-id",
+        title=public_title,
+        wait=True,
+        wait_timeout=23.0,
+    )
+    service.finalize_file_title.assert_awaited_once()
+    finalize_call = service.finalize_file_title.await_args
+    assert finalize_call.args[0] == "nb"
+    assert finalize_call.args[1].id == "drive"
+    assert finalize_call.args[2] == expected_title

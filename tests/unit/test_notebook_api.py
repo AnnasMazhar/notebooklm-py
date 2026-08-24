@@ -1022,6 +1022,16 @@ class TestGetNotebookFailsClosed:
             await api.get("nb_missing")
 
     @pytest.mark.asyncio
+    async def test_get_or_none_does_not_decode_source_ids_from_not_found_payload(self, caplog):
+        api = _make_api(rpc_call=AsyncMock(return_value=[None]))
+
+        with caplog.at_level(logging.WARNING, logger="notebooklm._notebooks"):
+            notebook = await api.get_or_none("nb_missing")
+
+        assert notebook is None
+        assert "get_source_ids" not in caplog.text
+
+    @pytest.mark.asyncio
     async def test_get_raises_on_degenerate_empty_inner(self):
         """``[[]]`` — outer wrapper present but inner notebook payload empty."""
         api = _make_api(rpc_call=AsyncMock(return_value=[[]]))

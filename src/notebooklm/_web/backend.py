@@ -1072,9 +1072,12 @@ class WebRpcBackend(ChatWebHandlers):
             deadline=deadline,
             source_path=f"/notebook/{value.notebook_id}",
         )
-        source_ids = decode_prompt_source_ids(result, notebook_id=value.notebook_id)
         if not value.include_notebook:
-            return NotebookGetResult(notebook=None, source_ids=source_ids)
+            return NotebookGetResult(
+                notebook=None,
+                source_ids=decode_prompt_source_ids(result, notebook_id=value.notebook_id),
+            )
+        source_ids: tuple[str, ...] = ()
         notebook_row = (
             safe_index(
                 result,
@@ -1090,6 +1093,7 @@ class WebRpcBackend(ChatWebHandlers):
         notebook = decode_notebook(notebook_row, include_chat_settings=True)
         if not notebook.id and not notebook.title:
             return NotebookGetResult(notebook=None, source_ids=source_ids)
+        source_ids = decode_prompt_source_ids(result, notebook_id=value.notebook_id)
         return NotebookGetResult(notebook=notebook, source_ids=source_ids)
 
     async def _source_list(
