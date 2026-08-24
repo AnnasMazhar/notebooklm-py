@@ -36,30 +36,30 @@ MAX_ALLOWED_LEGACY_EXCEPTIONS = 5
 # before P7 runtime collapse can begin.
 KNOWN_RPC_CALLER_CONSUMERS: frozenset[tuple[str, str, str]] = frozenset(
     {
-        ("_artifact/downloads.py", "__init__", "rpc"),
-        ("_artifact/generation.py", "__init__", "rpc"),
-        ("_artifact/listing.py", "list_raw", "rpc"),
-        ("_artifacts.py", "__init__", "rpc"),
-        ("_chat/api.py", "__init__", "rpc"),
-        ("_collections.py", "__init__", "rpc"),
-        ("_labels.py", "__init__", "rpc"),
-        ("_mind_maps_api.py", "__init__", "rpc"),
-        ("_note_service.py", "__init__", "rpc"),
+        ("_artifact/downloads.py", "ArtifactDownloadService.__init__", "rpc"),
+        ("_artifact/generation.py", "ArtifactGenerationService.__init__", "rpc"),
+        ("_artifact/listing.py", "ArtifactListingService.list_raw", "rpc"),
+        ("_artifacts.py", "ArtifactsAPI.__init__", "rpc"),
+        ("_chat/api.py", "ChatAPI.__init__", "rpc"),
+        ("_collections.py", "CollectionsAPI.__init__", "rpc"),
+        ("_labels.py", "LabelsAPI.__init__", "rpc"),
+        ("_mind_maps_api.py", "MindMapsAPI.__init__", "rpc"),
+        ("_note_service.py", "LegacyNoteBackedService.__init__", "rpc"),
         ("_notebook_metadata.py", "create_default_source_lister", "rpc"),
-        ("_notebooks.py", "__init__", "rpc"),
-        ("_research.py", "__init__", "rpc"),
-        ("_settings.py", "__init__", "rpc"),
-        ("_sharing.py", "__init__", "rpc"),
-        ("_sharing_manager.py", "__init__", "rpc"),
-        ("_source/add.py", "add_drive", "rpc"),
-        ("_source/add.py", "add_text", "rpc"),
-        ("_source/add.py", "add_url_source", "rpc"),
-        ("_source/add.py", "add_youtube_source", "rpc"),
-        ("_source/batch.py", "add_urls", "rpc"),
-        ("_source/content.py", "__init__", "rpc"),
-        ("_source/listing.py", "__init__", "rpc"),
-        ("_source/upload.py", "__init__", "rpc"),
-        ("_sources.py", "__init__", "rpc"),
+        ("_notebooks.py", "NotebooksAPI.__init__", "rpc"),
+        ("_research.py", "ResearchAPI.__init__", "rpc"),
+        ("_settings.py", "SettingsAPI.__init__", "rpc"),
+        ("_sharing.py", "SharingAPI.__init__", "rpc"),
+        ("_sharing_manager.py", "ShareManager.__init__", "rpc"),
+        ("_source/add.py", "SourceAddService.add_drive", "rpc"),
+        ("_source/add.py", "SourceAddService.add_text", "rpc"),
+        ("_source/add.py", "SourceAddService.add_url_source", "rpc"),
+        ("_source/add.py", "SourceAddService.add_youtube_source", "rpc"),
+        ("_source/batch.py", "SourceBatchAddService.add_urls", "rpc"),
+        ("_source/content.py", "SourceContentRenderer.__init__", "rpc"),
+        ("_source/listing.py", "SourceLister.__init__", "rpc"),
+        ("_source/upload.py", "SourceUploadPipeline.__init__", "rpc"),
+        ("_sources.py", "SourcesAPI.__init__", "rpc"),
     }
 )
 
@@ -114,11 +114,33 @@ def collect_rpc_caller_consumers(src_dir: Path = SRC_ROOT) -> set[tuple[str, str
     for path in sorted(src_dir.rglob("*.py")):
         rel_posix = path.relative_to(src_dir).as_posix()
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+
+        class ConsumerVisitor(ast.NodeVisitor):
+            def __init__(self, module: str) -> None:
+                self.module = module
+                self.owners: list[str] = []
+
+            def visit_ClassDef(self, node: ast.ClassDef) -> None:
+                self.owners.append(node.name)
+                self.generic_visit(node)
+                self.owners.pop()
+
+            def _visit_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
                 for arg in node.args.args + node.args.kwonlyargs:
                     if arg.annotation and "RpcCaller" in ast.unparse(arg.annotation):
-                        consumers.add((rel_posix, node.name, arg.arg))
+                        owner = ".".join((*self.owners, node.name))
+                        consumers.add((self.module, owner, arg.arg))
+                self.owners.append(node.name)
+                self.generic_visit(node)
+                self.owners.pop()
+
+            def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+                self._visit_function(node)
+
+            def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+                self._visit_function(node)
+
+        ConsumerVisitor(rel_posix).visit(tree)
     return consumers
 
 
@@ -253,9 +275,7 @@ def test_p7_entry_criteria_blockers_enumeration() -> None:
     report = evaluate_p7_entry_readiness()
 
     assert not report.ready, "P7 cannot be ready before P1-P6 migrations complete"
-    assert len(report.blockers) >= 4, (
-        f"Expected at least 4 blocker classes, got: {report.blockers}"
-    )
+    assert len(report.blockers) >= 4, f"Expected at least 4 blocker classes, got: {report.blockers}"
 
     # Check each blocker category is explicitly reported
     blocker_text = "\n".join(report.blockers)
@@ -356,4 +376,6 @@ def test_detector_fails_closed_when_legacy_exception_missing_approver_or_issue()
         )(),
     ]
     report = evaluate_p7_entry_readiness(operation_specs=fake_specs)
-    assert any("must specify both an approver and an open removal issue" in b for b in report.blockers)
+    assert any(
+        "must specify both an approver and an open removal issue" in b for b in report.blockers
+    )

@@ -25,6 +25,11 @@ from notebooklm._notebook_payloads import (
 )
 from notebooklm._operations import CallPolicy, Operation, OperationDef
 from notebooklm._records import (
+    NOTE_CREATE_DEF,
+    NOTE_DELETE_DEF,
+    NOTE_GET_DEF,
+    NOTE_LIST_DEF,
+    NOTE_UPDATE_DEF,
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
@@ -40,6 +45,11 @@ from notebooklm._records import (
     NotebookListInput,
     NotebookListResult,
     NotebookTitleUpdateInput,
+    NoteCreateInput,
+    NoteDeleteInput,
+    NoteGetInput,
+    NoteListInput,
+    NoteUpdateInput,
     SourceAddCommitState,
     SourceAddTitleState,
     SourceAddUrlInput,
@@ -97,7 +107,7 @@ def _backend(executor: _RecordingExecutor) -> WebRpcBackend:
     return WebRpcBackend(executor, transport_factory=_transport_factory)  # type: ignore[arg-type]
 
 
-def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
+def test_registry_is_closed_and_exposes_migrated_handlers() -> None:
     assert set(WEB_OPERATION_REGISTRY) == set(Operation)
     assert {
         Operation.NOTEBOOK_LIST,
@@ -107,6 +117,11 @@ def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
         Operation.NOTEBOOK_DELETE,
         Operation.SOURCE_LIST,
         Operation.SOURCE_GET,
+        Operation.NOTE_LIST,
+        Operation.NOTE_GET,
+        Operation.NOTE_CREATE,
+        Operation.NOTE_UPDATE,
+        Operation.NOTE_DELETE,
     } == WEB_SUPPORTED_OPERATIONS
     assert {
         operation: binding.definition
@@ -120,6 +135,11 @@ def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
+        Operation.NOTE_LIST: NOTE_LIST_DEF,
+        Operation.NOTE_GET: NOTE_GET_DEF,
+        Operation.NOTE_CREATE: NOTE_CREATE_DEF,
+        Operation.NOTE_UPDATE: NOTE_UPDATE_DEF,
+        Operation.NOTE_DELETE: NOTE_DELETE_DEF,
     }
     assert all(
         binding.unsupported_reason
@@ -151,6 +171,68 @@ async def test_every_unsupported_operation_fails_before_executor(operation: Oper
     assert caught.value.operation is operation
     assert caught.value.backend_kind is BackendKind.WEB
     assert executor.calls == []
+
+
+@pytest.mark.asyncio
+async def test_note_handlers_preserve_classification_exact_id_and_wire_shapes() -> None:
+    rows = [
+        [
+            ["note-123", ["note-123", "Body", None, None, "Title"]],
+            ["note-12", ["note-12", "Prefix", None, None, "Other"]],
+            ["mind-map", '{"name":"Map","children":[]}'],
+            ["deleted", None, 2],
+        ]
+    ]
+    executor = _RecordingExecutor(
+        rows,
+        rows,
+        [["created", "", [1, "user", [1_700_000_000, 0]], None, "Ignored"]],
+        None,
+        None,
+    )
+    backend = _backend(executor)
+    deadline = RuntimeDeadline(timeout=5.0, started_at=10.0, monotonic=lambda: 11.0)
+
+    listed = await backend.invoke(NOTE_LIST_DEF, NoteListInput("nb"), deadline=deadline)
+    selected = await backend.invoke(
+        NOTE_GET_DEF,
+        NoteGetInput("nb", "note-123"),
+        deadline=deadline,
+    )
+    created = await backend.invoke(
+        NOTE_CREATE_DEF,
+        NoteCreateInput("nb", "Title", "Body"),
+        deadline=deadline,
+    )
+    await backend.invoke(
+        NOTE_UPDATE_DEF,
+        NoteUpdateInput("nb", "note-123", "New body", "New title"),
+        deadline=deadline,
+    )
+    await backend.invoke(
+        NOTE_DELETE_DEF,
+        NoteDeleteInput("nb", "note-123"),
+        deadline=deadline,
+    )
+
+    assert [note.id for note in listed.notes] == ["note-123", "note-12"]
+    assert selected.note is not None and selected.note.id == "note-123"
+    assert (created.note.id, created.note.title, created.note.content) == (
+        "created",
+        "Title",
+        "Body",
+    )
+    assert [call.method for call in executor.calls] == [
+        RPCMethod.GET_NOTES_AND_MIND_MAPS,
+        RPCMethod.GET_NOTES_AND_MIND_MAPS,
+        RPCMethod.CREATE_NOTE,
+        RPCMethod.UPDATE_NOTE,
+        RPCMethod.DELETE_NOTE,
+    ]
+    assert all(call.kwargs["_retry_deadline"] is deadline for call in executor.calls)
+    assert executor.calls[2].params == ["nb", "", [1], None, "Title"]
+    assert executor.calls[3].params == ["nb", "note-123", [[["New body", "New title", [], 0]]]]
+    assert executor.calls[4].params == ["nb", None, ["note-123"]]
 
 
 @pytest.mark.asyncio
@@ -809,6 +891,7 @@ def test_only_migrated_feature_runtime_reads_private_backend() -> None:
         package / "_notebooks.py",
         package / "_notebook_mutation_service.py",
         package / "_mutation_services.py",
+        package / "_note_service.py",
         package / "_read_services.py",
         package / "_sources.py",
     }

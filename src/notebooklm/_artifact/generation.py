@@ -56,7 +56,7 @@ from .payloads import (
 )
 
 if TYPE_CHECKING:
-    from .._note_service import NoteService
+    from .._note_service import LegacyNoteBackedService
     from .._notebook_metadata import NotebookSourceIdProvider
     from .._runtime.contracts import RpcCaller
 
@@ -77,7 +77,7 @@ class ArtifactGenerationService:
         *,
         rpc: RpcCaller,
         notebooks: NotebookSourceIdProvider,
-        note_service: NoteService,
+        note_service: LegacyNoteBackedService,
     ) -> None:
         self._rpc = rpc
         self._notebooks = notebooks
@@ -526,7 +526,7 @@ class ArtifactGenerationService:
                 if isinstance(name, str) and name:
                     title = name
 
-            # ``NoteService.create_note`` raises ``RPCError`` when the
+            # ``LegacyNoteBackedService.create_note`` raises ``RPCError`` when the
             # server omits a usable row id (issue #1162); on success it
             # always returns a ``Note`` with a non-empty id. The
             # ``note.id or None`` below is therefore defensive only —

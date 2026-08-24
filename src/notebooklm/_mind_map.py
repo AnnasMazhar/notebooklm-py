@@ -20,40 +20,45 @@ from __future__ import annotations
 
 from typing import Any
 
-from ._note_service import NoteRowKind, NoteService
+from ._note_service import LegacyNoteBackedService, NoteRowKind
 from ._row_adapters.notes import NoteRow
 from .exceptions import MindMapNotFoundError
 
 
 class NoteBackedMindMapService:
-    """Mind-map-only facade over :class:`NoteService`.
+    """Mind-map-only facade over :class:`LegacyNoteBackedService`.
 
     Adapter that knows mind maps share storage with notes. Consumers
     (``ArtifactsAPI`` download path, ``NotesAPI`` mind-map surface)
-    talk to this class instead of reaching into ``NoteService``
+    talk to this class instead of reaching into ``LegacyNoteBackedService``
     directly, so the "mind maps are notes under the hood" detail
     stays localized.
 
     The download path doesn't need ``create_mind_map`` — mind-map
-    creation goes through :meth:`NoteService.create_note` directly
+    creation goes through :meth:`LegacyNoteBackedService.create_note` directly
     from ``ArtifactsAPI.generate_mind_map`` (a one-shot
     GENERATE_MIND_MAP + persist pipeline). The methods exposed here
     are exactly the ones the artifact download path and ``NotesAPI``
     ``list_mind_maps`` / ``delete_mind_map`` need.
     """
 
-    def __init__(self, notes: NoteService) -> None:
+    def __init__(self, notes: LegacyNoteBackedService) -> None:
         self._notes = notes
+
+    async def _fetch_all_rows(self, notebook_id: str) -> list[Any]:
+        """Compatibility seam for deferred note-backed callers and private tests."""
+
+        return await self._notes.fetch_note_rows(notebook_id)
 
     async def list_mind_maps(self, notebook_id: str) -> list[Any]:
         """Return mind-map rows for a notebook (deleted rows excluded)."""
-        rows = await self._notes.fetch_note_rows(notebook_id)
+        rows = await self._fetch_all_rows(notebook_id)
         return [r for r in rows if self._notes.classify_row(r) == NoteRowKind.MIND_MAP]
 
     def extract_content(self, row: list[Any]) -> str | None:
         """Return the JSON content payload of a mind-map row.
 
-        Delegates to :meth:`NoteService.extract_content` so the download
+        Delegates to :meth:`LegacyNoteBackedService.extract_content` so the download
         path doesn't have to know mind maps share storage with notes.
         """
         return self._notes.extract_content(row)
@@ -61,7 +66,7 @@ class NoteBackedMindMapService:
     async def delete_mind_map(self, notebook_id: str, note_id: str) -> None:
         """Soft-delete a mind-map row.
 
-        Delegates to :meth:`NoteService.delete_note`. Returns ``None`` as of
+        Delegates to :meth:`LegacyNoteBackedService.delete_note`. Returns ``None`` as of
         v0.7.0 (``NotesAPI.delete_mind_map(...) -> None``, issue #1211).
         """
         await self._notes.delete_note(notebook_id, note_id)

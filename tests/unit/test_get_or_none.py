@@ -23,9 +23,8 @@ from notebooklm._artifacts import ArtifactsAPI
 from notebooklm._lookup import unwrap_or_raise
 from notebooklm._mind_map import NoteBackedMindMapService
 from notebooklm._mind_maps_api import MindMapsAPI
-from notebooklm._note_service import NoteService
+from notebooklm._note_service import LegacyNoteBackedService
 from notebooklm._notebooks import NotebooksAPI
-from notebooklm._notes import NotesAPI
 from notebooklm._sources import SourcesAPI
 from notebooklm.exceptions import ClientError, NotebookNotFoundError, RPCError
 from notebooklm.types import MindMap, MindMapKind, Source
@@ -94,7 +93,7 @@ def artifacts_api():
         lifecycle=core,
         notebooks=notebooks,
         mind_maps=mind_maps,
-        note_service=MagicMock(spec=NoteService),
+        note_service=MagicMock(spec=LegacyNoteBackedService),
     )
 
 
@@ -103,9 +102,9 @@ def notes_api():
     from tests._fixtures.fake_core import make_fake_core
 
     core = make_fake_core(rpc_call=AsyncMock())
-    note_service = NoteService(core)
-    mind_maps = NoteBackedMindMapService(note_service)
-    return NotesAPI(notes=note_service, mind_maps=mind_maps)
+    from tests._fixtures.note_stack import make_note_stack
+
+    return make_note_stack(core)[3]
 
 
 @pytest.fixture

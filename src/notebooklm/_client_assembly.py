@@ -47,7 +47,7 @@ from ._collections import CollectionsAPI
 from ._labels import LabelsAPI
 from ._mind_map import NoteBackedMindMapService
 from ._mind_maps_api import MindMapsAPI
-from ._note_service import NoteService
+from ._note_service import LegacyNoteBackedService, NoteService
 from ._notebooks import NotebooksAPI
 from ._notes import NotesAPI
 from ._research import ResearchAPI
@@ -368,13 +368,13 @@ def _assemble_client(
         sources_api=client.sources,
         _backend=client._backend,
     )
-    # Note wiring (see docs/refactor-history.md): an explicit
-    # NoteService + NoteBackedMindMapService split. NoteService owns the
-    # raw row primitives; NoteBackedMindMapService is the mind-map-only
-    # adapter the download path uses; the artifact-generation path uses
-    # NoteService.create_note directly to persist a generated mind map.
-    note_service = NoteService(internals.executor)
-    mind_maps = NoteBackedMindMapService(note_service)
+    # P6.3 note wiring keeps semantic NOTE_* ownership disjoint from the
+    # deferred MIND_MAP_* slice. NotesAPI receives the backend-neutral
+    # NoteService; note-backed artifact/mind-map callers retain the explicitly
+    # named legacy RPC service until MindMapsAPI migrates.
+    note_service = NoteService(backend=client._backend)
+    legacy_note_backed = LegacyNoteBackedService(internals.executor)
+    mind_maps = NoteBackedMindMapService(legacy_note_backed)
     # ADR-0014 Rule 2: the artifacts API takes its three runtime
     # collaborators (``rpc`` + ``drain`` + ``lifecycle``) directly
     # instead of via a composite-runtime adapter. ``rpc`` covers
@@ -387,7 +387,7 @@ def _assemble_client(
         lifecycle=internals.collaborators.lifecycle,
         notebooks=client.notebooks,
         mind_maps=mind_maps,
-        note_service=note_service,
+        note_service=legacy_note_backed,
         storage_path=storage_path,
     )
     # ChatAPI (per ADR-0014) takes its

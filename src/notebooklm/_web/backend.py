@@ -1,8 +1,9 @@
 """Web implementation of the private semantic backend port.
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
-P2.2 adds three facade-inert notebook mutation handlers; and P2.3 stages the
-facade-inert URL/YouTube source composite. These bindings intentionally reuse
+P2.2 adds three facade-inert notebook mutation handlers; P2.3 stages the
+facade-inert URL/YouTube source composite; and P6.3 routes plain-note CRUD.
+These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -57,6 +58,16 @@ from .._records import (
     NotebookRecord,
     NotebookTitleUpdateInput,
     NotebookTitleUpdateResult,
+    NoteCreateInput,
+    NoteCreateResult,
+    NoteDeleteInput,
+    NoteDeleteResult,
+    NoteGetInput,
+    NoteGetResult,
+    NoteListInput,
+    NoteListResult,
+    NoteUpdateInput,
+    NoteUpdateResult,
     SourceAddCommitState,
     SourceAddTitleState,
     SourceAddUrlInput,
@@ -97,6 +108,7 @@ from ..rpc.types import (
     source_status_to_str,
 )
 from ..types import Notebook, Source
+from .codec.notes import decode_created_note, decode_note, decode_notes
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
 logger = logging.getLogger("notebooklm").getChild("_sources")
@@ -327,7 +339,6 @@ class WebRpcBackend:
         except (RPCError, NetworkError) as exc:
             translated = self._translate_error(operation.key, exc)
             raise translated from exc
-
 
         if type(result) is not operation.output_type:
             raise BackendContractError(
@@ -610,6 +621,88 @@ class WebRpcBackend:
         return SourceGetResult(
             source=next((source for source in records if source.id == value.source_id), None)
         )
+
+    async def _note_list(
+        self,
+        value: NoteListInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteListResult:
+        result = await self._rpc_call(
+            RPCMethod.GET_NOTES_AND_MIND_MAPS,
+            [value.notebook_id],
+            operation=Operation.NOTE_LIST,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteListResult(decode_notes(result, value.notebook_id))
+
+    async def _note_get(
+        self,
+        value: NoteGetInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteGetResult:
+        result = await self._rpc_call(
+            RPCMethod.GET_NOTES_AND_MIND_MAPS,
+            [value.notebook_id],
+            operation=Operation.NOTE_GET,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteGetResult(decode_note(result, value.notebook_id, value.note_id))
+
+    async def _note_create(
+        self,
+        value: NoteCreateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteCreateResult:
+        result = await self._rpc_call(
+            RPCMethod.CREATE_NOTE,
+            [value.notebook_id, "", [1], None, value.title],
+            operation=Operation.NOTE_CREATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            operation_variant="plain",
+        )
+        return NoteCreateResult(
+            decode_created_note(result, value.notebook_id, value.title, value.content)
+        )
+
+    async def _note_update(
+        self,
+        value: NoteUpdateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteUpdateResult:
+        await self._rpc_call(
+            RPCMethod.UPDATE_NOTE,
+            [value.notebook_id, value.note_id, [[[value.content, value.title, [], 0]]]],
+            operation=Operation.NOTE_UPDATE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteUpdateResult()
+
+    async def _note_delete(
+        self,
+        value: NoteDeleteInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NoteDeleteResult:
+        await self._rpc_call(
+            RPCMethod.DELETE_NOTE,
+            [value.notebook_id, None, [value.note_id]],
+            operation=Operation.NOTE_DELETE,
+            deadline=deadline,
+            source_path=f"/notebook/{value.notebook_id}",
+            allow_null=True,
+        )
+        return NoteDeleteResult()
 
     async def _source_add_url(
         self,
