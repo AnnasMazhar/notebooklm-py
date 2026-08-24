@@ -29,7 +29,7 @@ from notebooklm._records import (
     NOTEBOOK_DELETE_DEF,
     NOTEBOOK_GET_DEF,
     NOTEBOOK_LIST_DEF,
-    NOTEBOOK_TITLE_UPDATE_DEF,
+    NOTEBOOK_UPDATE_DEF,
     SOURCE_ADD_URL_DEF,
     SOURCE_GET_DEF,
     SOURCE_LIST_DEF,
@@ -39,7 +39,7 @@ from notebooklm._records import (
     NotebookGetInput,
     NotebookListInput,
     NotebookListResult,
-    NotebookTitleUpdateInput,
+    NotebookUpdateInput,
     SourceAddCommitState,
     SourceAddTitleState,
     SourceAddUrlInput,
@@ -116,7 +116,7 @@ def test_registry_is_closed_and_exposes_only_inert_p2_handlers() -> None:
         Operation.NOTEBOOK_LIST: NOTEBOOK_LIST_DEF,
         Operation.NOTEBOOK_GET: NOTEBOOK_GET_DEF,
         Operation.NOTEBOOK_CREATE: NOTEBOOK_CREATE_DEF,
-        Operation.NOTEBOOK_UPDATE: NOTEBOOK_TITLE_UPDATE_DEF,
+        Operation.NOTEBOOK_UPDATE: NOTEBOOK_UPDATE_DEF,
         Operation.NOTEBOOK_DELETE: NOTEBOOK_DELETE_DEF,
         Operation.SOURCE_LIST: SOURCE_LIST_DEF,
         Operation.SOURCE_GET: SOURCE_GET_DEF,
@@ -285,8 +285,8 @@ async def test_notebook_title_update_mutates_then_reads_back() -> None:
     executor = _RecordingExecutor(None, [["Renamed", [], "nb-1"]])
 
     result = await _backend(executor).invoke(
-        NOTEBOOK_TITLE_UPDATE_DEF,
-        NotebookTitleUpdateInput("nb-1", "Renamed"),
+        NOTEBOOK_UPDATE_DEF,
+        NotebookUpdateInput("nb-1", title="Renamed"),
         deadline=None,
     )
 
@@ -704,6 +704,8 @@ def test_web_error_reasons_are_closed_and_preserve_reconstruction_evidence(
         BackendErrorReason.CLIENT,
         BackendErrorReason.DECODING,
         BackendErrorReason.NETWORK,
+        BackendErrorReason.NOTEBOOK_LIMIT,
+        BackendErrorReason.NOTEBOOK_NOT_FOUND,
         BackendErrorReason.RATE_LIMIT,
         BackendErrorReason.RESPONSE_TOO_LARGE,
         BackendErrorReason.RPC,

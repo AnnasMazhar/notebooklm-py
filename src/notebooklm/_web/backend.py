@@ -1,8 +1,8 @@
 """Web implementation of the private semantic backend port.
 
 P1 assembles this backend. P2.1 routes four notebook/source reads through it;
-P2.2 adds three facade-inert notebook mutation handlers; and P2.3 stages the
-facade-inert URL/YouTube source composite. These bindings intentionally reuse
+P2.2 routes three notebook mutation handlers; and P2.3 stages the facade-inert
+URL/YouTube source composite. These bindings intentionally reuse
 the current request builders, strict row adapters, and public-model decoders
 until the P3 codec split.
 Removal: P3 replaces the compatibility model-to-record projections below with
@@ -55,8 +55,8 @@ from .._records import (
     NotebookListResult,
     NotebookPremiumFeaturesRecord,
     NotebookRecord,
-    NotebookTitleUpdateInput,
-    NotebookTitleUpdateResult,
+    NotebookUpdateInput,
+    NotebookUpdateResult,
     SourceAddCommitState,
     SourceAddTitleState,
     SourceAddUrlInput,
@@ -69,6 +69,7 @@ from .._records import (
     SourceRecord,
 )
 from .._rpc_executor import RpcExecutor
+from .._settings import build_get_user_settings_params, extract_account_limits
 from .._source.add import SourceAddService, honor_requested_title_if_fresh
 from .._source.listing import SourceLister
 from .._source.polling import SourcePoller
@@ -80,7 +81,6 @@ from ..exceptions import (
     ClientError,
     DecodingError,
     NetworkError,
-    NotebookNotFoundError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -99,7 +99,10 @@ from ..rpc.types import (
 from ..types import Notebook, Source
 from .registry import WEB_OPERATION_REGISTRY, WEB_SUPPORTED_OPERATIONS
 
-logger = logging.getLogger("notebooklm").getChild("_sources")
+notebook_logger = logging.getLogger("notebooklm._notebooks")
+source_logger = logging.getLogger("notebooklm").getChild("_sources")
+
+_CREATE_NOTEBOOK_QUOTA_RPC_CODE = 3
 
 _WEB_ERROR_REASONS: dict[type[object], BackendErrorReason] = {
     AuthError: BackendErrorReason.AUTH,
@@ -430,22 +433,63 @@ class WebRpcBackend:
         except Exception as exc:
             baseline_ids = None
             baseline_error = exc
+            notebook_logger.warning(
+                "create: baseline list() failed (%s); the idempotency probe can no "
+                "longer tell a notebook this call created from one that was already "
+                "there, so a transport failure will surface as an ambiguity error "
+                "instead of recovering",
+                type(exc).__name__,
+                exc_info=True,
+            )
 
         async def create() -> NotebookRecord:
-            result = await self._rpc_call(
-                RPCMethod.CREATE_NOTEBOOK,
-                build_create_notebook_params(value.title),
-                operation=Operation.NOTEBOOK_CREATE,
-                deadline=deadline,
-                disable_internal_retries=True,
-            )
+            try:
+                result = await self._rpc_call(
+                    RPCMethod.CREATE_NOTEBOOK,
+                    build_create_notebook_params(value.title),
+                    operation=Operation.NOTEBOOK_CREATE,
+                    deadline=deadline,
+                    disable_internal_retries=True,
+                )
+            except RPCError as exc:
+                limit_error = await self._notebook_limit_error(exc, deadline=deadline)
+                if limit_error is not None:
+                    raise limit_error from None
+                raise
             return _notebook_record(Notebook.from_api_response(result))
 
         async def probe() -> NotebookRecord | None:
-            current = await self._notebook_list(
-                NotebookListInput(),
-                deadline=deadline,
-            )
+            try:
+                current = await self._notebook_list(
+                    NotebookListInput(),
+                    deadline=deadline,
+                )
+            except (AuthError, RateLimitError, ServerError, NetworkError) as exc:
+                notebook_logger.warning(
+                    "create: probe list() failed with transport/auth error; "
+                    "propagating so the caller can avoid a duplicate-resource retry"
+                )
+                mark_unconfirmed(exc)
+                raise
+            except BackendError:
+                raise
+            except Exception as exc:
+                notebook_logger.warning(
+                    "create: probe list() failed with a non-transport error (%s); the "
+                    "create cannot be confirmed, so it will not be retried",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+                raise mark_unconfirmed(
+                    RPCError(
+                        "UNRESOLVED — do not blindly retry; check your notebook list "
+                        f"first. Cannot confirm notebook with title {value.title!r}: the "
+                        "create failed at the transport level and may or may not have "
+                        "committed, and the idempotency probe that would settle it "
+                        f"failed too ({type(exc).__name__}). No FURTHER attempt was made.",
+                        method_id=RPCMethod.CREATE_NOTEBOOK.value,
+                    )
+                ) from exc
             matches = tuple(
                 notebook for notebook in current.notebooks if notebook.title == value.title
             )
@@ -454,9 +498,11 @@ class WebRpcBackend:
             elif matches:
                 raise mark_unconfirmed(
                     RPCError(
-                        f"Cannot disambiguate notebook with title {value.title!r}: "
-                        "the pre-create baseline snapshot failed "
-                        f"({type(baseline_error).__name__}); check the notebook list before retrying",
+                        f"Cannot disambiguate notebook with title {value.title!r} — check your "
+                        "notebook list before retrying: the pre-create baseline snapshot failed "
+                        f"({type(baseline_error).__name__}), so "
+                        f"{', '.join(f'{item.id} ({item.title!r})' for item in matches)} may "
+                        "either predate this create or be the notebook it just created.",
                         method_id=RPCMethod.CREATE_NOTEBOOK.value,
                     )
                 )
@@ -479,15 +525,69 @@ class WebRpcBackend:
         )
         return NotebookCreateResult(notebook=result.value)
 
-    async def _notebook_title_update(
+    async def _notebook_limit_error(
         self,
-        value: NotebookTitleUpdateInput,
+        error: RPCError,
         *,
         deadline: RuntimeDeadline | None,
-    ) -> NotebookTitleUpdateResult:
+    ) -> BackendError | None:
+        if (
+            error.method_id != RPCMethod.CREATE_NOTEBOOK.value
+            or error.rpc_code != _CREATE_NOTEBOOK_QUOTA_RPC_CODE
+        ):
+            return None
+        try:
+            settings = await self._rpc_call(
+                RPCMethod.GET_USER_SETTINGS,
+                build_get_user_settings_params(),
+                operation=Operation.NOTEBOOK_CREATE,
+                deadline=deadline,
+                source_path="/",
+            )
+            limit = extract_account_limits(settings).notebook_limit
+        except Exception:
+            return None
+        if limit is None:
+            return None
+        try:
+            listed = await self._notebook_list(NotebookListInput(), deadline=deadline)
+        except Exception:
+            return None
+        owned_count = sum(1 for notebook in listed.notebooks if notebook.is_owner)
+        if owned_count < max(limit - 1, 0):
+            return None
+
+        original = self._translate_error(Operation.NOTEBOOK_CREATE, error)
+        return BackendError(
+            message="notebook limit reached",
+            operation=Operation.NOTEBOOK_CREATE,
+            diagnostics=MappingProxyType(
+                {
+                    "current_count": owned_count,
+                    "limit": limit,
+                    "original_message": original.message,
+                    "original_reason": original.reason.value
+                    if original.reason is not None
+                    else None,
+                    "original_diagnostics": dict(original.diagnostics or {}),
+                }
+            ),
+            reason=BackendErrorReason.NOTEBOOK_LIMIT,
+        )
+
+    async def _notebook_update(
+        self,
+        value: NotebookUpdateInput,
+        *,
+        deadline: RuntimeDeadline | None,
+    ) -> NotebookUpdateResult:
         await self._rpc_call(
             RPCMethod.RENAME_NOTEBOOK,
-            build_update_notebook_params(value.notebook_id, title=value.title),
+            build_update_notebook_params(
+                value.notebook_id,
+                title=value.title,
+                emoji=value.emoji,
+            ),
             operation=Operation.NOTEBOOK_UPDATE,
             deadline=deadline,
             source_path="/",
@@ -505,23 +605,37 @@ class WebRpcBackend:
                 result,
                 0,
                 method_id=RPCMethod.GET_NOTEBOOK.value,
-                source="WebRpcBackend._notebook_title_update",
+                source="WebRpcBackend._notebook_update",
             )
             if result and isinstance(result, list)
             else None
         )
         if not notebook_row:
-            raise NotebookNotFoundError(
-                value.notebook_id,
-                method_id=RPCMethod.GET_NOTEBOOK.value,
+            raise BackendError(
+                message=f"Notebook not found: {value.notebook_id}",
+                operation=Operation.NOTEBOOK_UPDATE,
+                diagnostics=MappingProxyType(
+                    {
+                        "notebook_id": value.notebook_id,
+                        "method_id": RPCMethod.GET_NOTEBOOK.value,
+                    }
+                ),
+                reason=BackendErrorReason.NOTEBOOK_NOT_FOUND,
             )
         notebook = Notebook.from_api_response(notebook_row, include_chat_settings=True)
         if not notebook.id and not notebook.title:
-            raise NotebookNotFoundError(
-                value.notebook_id,
-                method_id=RPCMethod.GET_NOTEBOOK.value,
+            raise BackendError(
+                message=f"Notebook not found: {value.notebook_id}",
+                operation=Operation.NOTEBOOK_UPDATE,
+                diagnostics=MappingProxyType(
+                    {
+                        "notebook_id": value.notebook_id,
+                        "method_id": RPCMethod.GET_NOTEBOOK.value,
+                    }
+                ),
+                reason=BackendErrorReason.NOTEBOOK_NOT_FOUND,
             )
-        return NotebookTitleUpdateResult(notebook=_notebook_record(notebook))
+        return NotebookUpdateResult(notebook=_notebook_record(notebook))
 
     async def _notebook_delete(
         self,
@@ -629,7 +743,7 @@ class WebRpcBackend:
                 parse_url=urlparse,
                 extract_video_id_from_parsed_url=adder.extract_video_id_from_parsed_url,
                 is_valid_video_id=adder.is_valid_video_id,
-                logger=logger,
+                logger=source_logger,
             )
 
         async def wait_until_ready(
@@ -645,7 +759,7 @@ class WebRpcBackend:
                 get_source=lister.get,
                 sleep=asyncio.sleep,
                 monotonic=(deadline.monotonic if deadline is not None else time.monotonic),
-                logger=logger,
+                logger=source_logger,
                 deadline=deadline,
             )
 
@@ -695,7 +809,7 @@ class WebRpcBackend:
                     wait_until_ready=wait_until_ready,
                     extract_youtube_video_id=extract_youtube_video_id,
                     is_youtube_url=is_youtube_url,
-                    logger=logger,
+                    logger=source_logger,
                     return_result=True,
                 ),
             )
@@ -722,7 +836,7 @@ class WebRpcBackend:
             value.notebook_id,
             create_result,
             requested_title,
-            logger,
+            source_logger,
             probe_proves_freshness=True,
         )
         if not normalized_title:

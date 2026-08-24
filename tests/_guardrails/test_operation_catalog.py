@@ -38,10 +38,6 @@ def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
     assert {
         "_web/backend.py:_DeadlineRpcCaller.rpc_call",
         "_web/backend.py:WebRpcBackend._rpc_call",
-        "_web/backend.py:WebRpcBackend._notebook_create",
-        "_web/backend.py:WebRpcBackend._notebook_create.create",
-        "_web/backend.py:WebRpcBackend._notebook_delete",
-        "_web/backend.py:WebRpcBackend._notebook_title_update",
         "_web/backend.py:WebRpcBackend._source_add_url",
     } == INERT_P1_WEB_SITES
     assert audit_inert_p1_web_sites() == []
@@ -53,7 +49,7 @@ def test_p1_inert_web_sites_are_exact_and_mutation_sensitive() -> None:
     ]
 
 
-def test_backend_dataflow_is_bounded_to_migrated_read_services() -> None:
+def test_backend_dataflow_is_bounded_to_migrated_services() -> None:
     assert audit_inert_p1_backend_dataflow() == []
 
     root = Path(__file__).resolve().parents[2] / "src" / "notebooklm"

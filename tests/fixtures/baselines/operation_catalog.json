@@ -1035,7 +1035,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_notebooks.py:NotebooksAPI.create._create"
+        "_web/backend.py:WebRpcBackend._notebook_create.create"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -1250,7 +1250,7 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_notebooks.py:NotebooksAPI.delete"
+        "_web/backend.py:WebRpcBackend._notebook_delete"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "success contract returns None; the response carries no decodable row to pin",
@@ -1581,6 +1581,7 @@
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
         "_web/backend.py:WebRpcBackend._notebook_get",
+        "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list"
       ],
@@ -1926,9 +1927,9 @@
       "disposition": "semantic",
       "disposition_reason": null,
       "execution_authorities": [
-        "_notebooks.py:NotebooksAPI._get_account_limits",
         "_settings.py:SettingsAPI._fetch_user_settings",
-        "_sources.py:SourcesAPI._get_source_limit"
+        "_sources.py:SourcesAPI._get_source_limit",
+        "_web/backend.py:WebRpcBackend._notebook_limit_error"
       ],
       "golden_disposition": "golden_covered",
       "golden_evidence": [
@@ -2366,8 +2367,8 @@
       "disposition_reason": null,
       "execution_authorities": [
         "_chat/api.py:ChatAPI.configure",
-        "_notebooks.py:NotebooksAPI.update",
-        "_sharing.py:SharingAPI.set_view_level"
+        "_sharing.py:SharingAPI.set_view_level",
+        "_web/backend.py:WebRpcBackend._notebook_update"
       ],
       "golden_disposition": "golden_exempt",
       "golden_evidence": "client discards this RPC's response; any returned object is decoded from a separate (golden-covered) read RPC",
@@ -5270,7 +5271,7 @@
         {
           "binding": "CREATE_NOTEBOOK:<default>",
           "discriminator": "direct semantic binding",
-          "site": "_notebooks.py:NotebooksAPI.create._create",
+          "site": "_web/backend.py:WebRpcBackend._notebook_create.create",
           "transport_kind": "rpc"
         },
         {
@@ -5282,7 +5283,7 @@
         {
           "binding": "GET_USER_SETTINGS:<default>",
           "discriminator": "quota-error diagnosis only",
-          "site": "_notebooks.py:NotebooksAPI._get_account_limits",
+          "site": "_web/backend.py:WebRpcBackend._notebook_limit_error",
           "transport_kind": "rpc"
         },
         {
@@ -5341,7 +5342,7 @@
         {
           "binding": "DELETE_NOTEBOOK:<default>",
           "discriminator": "direct semantic binding",
-          "site": "_notebooks.py:NotebooksAPI.delete",
+          "site": "_web/backend.py:WebRpcBackend._notebook_delete",
           "transport_kind": "rpc"
         }
       ],
@@ -5666,13 +5667,13 @@
         {
           "binding": "GET_NOTEBOOK:<default>",
           "discriminator": "unconditional post-mutation read",
-          "site": "_web/backend.py:WebRpcBackend._notebook_get",
+          "site": "_web/backend.py:WebRpcBackend._notebook_update",
           "transport_kind": "rpc"
         },
         {
           "binding": "RENAME_NOTEBOOK:<default>",
           "discriminator": "title|emoji mutation",
-          "site": "_notebooks.py:NotebooksAPI.update",
+          "site": "_web/backend.py:WebRpcBackend._notebook_update",
           "transport_kind": "rpc"
         }
       ],
@@ -5693,7 +5694,7 @@
       "recency_contract": [
         {
           "authority_sites": [
-            "_web/backend.py:WebRpcBackend._notebook_get"
+            "_web/backend.py:WebRpcBackend._notebook_update"
           ],
           "condition": "always after a successful mutation",
           "maximum_calls": 1,

@@ -19,6 +19,8 @@ from notebooklm.exceptions import (
     ClientError,
     DecodingError,
     NetworkError,
+    NotebookLimitError,
+    NotebookNotFoundError,
     RateLimitError,
     RPCError,
     RPCResponseTooLargeError,
@@ -161,6 +163,59 @@ def test_unknown_rpc_base_message_is_not_rendered_with_diagnostics_twice() -> No
     assert str(projected) == str(original)
     assert str(projected).count("method_id='rpc'") == 1
     assert str(projected).count("path=(0, 2)") == 1
+
+
+def test_notebook_mutation_specific_errors_reconstruct_from_neutral_evidence() -> None:
+    not_found = project_backend_error(
+        BackendError(
+            "Notebook not found: missing",
+            operation=Operation.NOTEBOOK_UPDATE,
+            reason=BackendErrorReason.NOTEBOOK_NOT_FOUND,
+            diagnostics={"notebook_id": "missing", "method_id": "rpc-get"},
+        )
+    )
+    assert isinstance(not_found, NotebookNotFoundError)
+    assert not_found.notebook_id == "missing"
+    assert not_found.method_id == "rpc-get"
+
+    limit = project_backend_error(
+        BackendError(
+            "notebook limit reached",
+            operation=Operation.NOTEBOOK_CREATE,
+            reason=BackendErrorReason.NOTEBOOK_LIMIT,
+            diagnostics={
+                "current_count": 499,
+                "limit": 500,
+                "original_message": "invalid argument",
+                "original_reason": BackendErrorReason.RPC.value,
+                "original_diagnostics": {
+                    "method_id": "rpc-create",
+                    "rpc_code": 3,
+                    "found_ids": [],
+                },
+            },
+        )
+    )
+    assert isinstance(limit, NotebookLimitError)
+    assert (limit.current_count, limit.limit) == (499, 500)
+    assert isinstance(limit.original_error, RPCError)
+    assert limit.original_error.method_id == "rpc-create"
+    assert limit.original_error.rpc_code == 3
+
+
+def test_unknown_mutation_outcome_marker_survives_public_reconstruction() -> None:
+    projected = project_backend_error(
+        BackendError(
+            "network",
+            operation=Operation.NOTEBOOK_CREATE,
+            reason=BackendErrorReason.NETWORK,
+            diagnostics={},
+            outcome_unknown=True,
+        )
+    )
+
+    assert isinstance(projected, NetworkError)
+    assert getattr(projected, "unconfirmed", False) is True
 
 
 @pytest.mark.parametrize(

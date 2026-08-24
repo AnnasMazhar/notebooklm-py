@@ -10,10 +10,10 @@ from ._projectors import project_notebook
 from ._records import (
     NOTEBOOK_CREATE_DEF,
     NOTEBOOK_DELETE_DEF,
-    NOTEBOOK_TITLE_UPDATE_DEF,
+    NOTEBOOK_UPDATE_DEF,
     NotebookCreateInput,
     NotebookDeleteInput,
-    NotebookTitleUpdateInput,
+    NotebookUpdateInput,
 )
 from .exceptions import ValidationError
 
@@ -42,6 +42,25 @@ class NotebookMutationService:
         )
         return project_notebook(result.notebook)
 
+    async def update(
+        self,
+        notebook_id: str,
+        *,
+        title: str | None = None,
+        emoji: str | None = None,
+        deadline: RuntimeDeadline | None = None,
+    ) -> Notebook:
+        if title is None and emoji is None:
+            raise ValidationError("At least one of title or emoji must be provided")
+        if title == "":
+            raise ValidationError("Notebook title must not be empty")
+        result = await self._backend.invoke(
+            NOTEBOOK_UPDATE_DEF,
+            NotebookUpdateInput(notebook_id, title=title, emoji=emoji),
+            deadline=deadline,
+        )
+        return project_notebook(result.notebook)
+
     async def update_title(
         self,
         notebook_id: str,
@@ -49,14 +68,8 @@ class NotebookMutationService:
         *,
         deadline: RuntimeDeadline | None = None,
     ) -> Notebook:
-        if not title:
-            raise ValidationError("Notebook title must not be empty")
-        result = await self._backend.invoke(
-            NOTEBOOK_TITLE_UPDATE_DEF,
-            NotebookTitleUpdateInput(notebook_id, title),
-            deadline=deadline,
-        )
-        return project_notebook(result.notebook)
+        """Compatibility convenience over the generic property mutation."""
+        return await self.update(notebook_id, title=title, deadline=deadline)
 
     async def delete(
         self,

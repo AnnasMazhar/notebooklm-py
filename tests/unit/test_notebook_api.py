@@ -31,7 +31,6 @@ from notebooklm.exceptions import (
 )
 from notebooklm.rpc import RPCMethod
 from notebooklm.types import (
-    AccountLimits,
     Notebook,
     NotebookMetadata,
     SharePermission,
@@ -355,10 +354,48 @@ def test_get_share_url_remains_sync_url_formatter(monkeypatch: pytest.MonkeyPatc
     assert url == "https://notebook.google.com/notebook/nb_123?artifactId=art_456"
 
 
-def _set_account_limit(api: NotebooksAPI, limit: int | None) -> AsyncMock:
-    mock = AsyncMock(return_value=AccountLimits(notebook_limit=limit))
-    api._get_account_limits = mock  # type: ignore[method-assign]
-    return mock
+def _notebook_row(notebook: Notebook) -> list[Any]:
+    role = notebook.role.value if notebook.role is not None else None
+    return [notebook.title, [], notebook.id, notebook.emoji, None, [role, False, True]]
+
+
+def _create_rpc(
+    *,
+    create_result: Any = None,
+    create_error: Exception | None = None,
+    list_results: list[list[Notebook] | Exception] | None = None,
+    account_limit: int | None = None,
+    settings_error: Exception | None = None,
+) -> AsyncMock:
+    """Build the executor seam exercised by backend-owned create reconciliation."""
+    pending_lists = list(list_results or [[]])
+
+    async def dispatch(method: RPCMethod, _params: Any, **_kwargs: Any) -> Any:
+        if method is RPCMethod.LIST_NOTEBOOKS:
+            if not pending_lists:
+                raise AssertionError("unexpected LIST_NOTEBOOKS call")
+            item = pending_lists.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return [[_notebook_row(notebook) for notebook in item]]
+        if method is RPCMethod.CREATE_NOTEBOOK:
+            if create_error is not None:
+                raise create_error
+            return create_result
+        if method is RPCMethod.GET_USER_SETTINGS:
+            if settings_error is not None:
+                raise settings_error
+            return [[None, [6, account_limit, 300, 500000, 2]]]
+        raise AssertionError(f"unexpected RPC method: {method}")
+
+    return AsyncMock(side_effect=dispatch)
+
+
+def _assert_equivalent_rpc_error(actual: RPCError, expected: RPCError) -> None:
+    assert type(actual) is type(expected)
+    assert str(actual) == str(expected)
+    assert actual.method_id == expected.method_id
+    assert actual.rpc_code == expected.rpc_code
 
 
 @pytest.mark.asyncio
@@ -386,10 +423,12 @@ async def test_create_baseline_failure_makes_a_match_ambiguous(
     broke the baseline, and which notebook is ambiguous.
     """
     transport_error = NetworkError("temporary network failure")
-    api = _make_api(rpc_call=AsyncMock(side_effect=transport_error))
     pre_existing = Notebook(id="nb_pre_existing", title="Quarterly Review")
-    # First call = the baseline (fails); second = the probe.
-    api.list = AsyncMock(side_effect=[baseline_failure, [pre_existing]])  # type: ignore[method-assign]
+    rpc_call = _create_rpc(
+        create_error=transport_error,
+        list_results=[baseline_failure, [pre_existing]],
+    )
+    api = _make_api(rpc_call=rpc_call)
 
     with (
         caplog.at_level(logging.WARNING, logger="notebooklm._notebooks"),
@@ -403,11 +442,8 @@ async def test_create_baseline_failure_makes_a_match_ambiguous(
     # The message names what broke the baseline — otherwise nothing reaching the
     # caller can explain why the snapshot was unavailable.
     assert type(baseline_failure).__name__ in str(raised.value)
-    # The transport error that triggered the probe survives as context, and
-    # ``__cause__`` is deliberately left unset so the traceback keeps printing
-    # it — ``idempotent_create`` promises both halves stay visible.
-    assert raised.value.__context__ is transport_error
-    assert raised.value.__cause__ is None
+    # The public boundary reconstructs exceptions from neutral backend evidence;
+    # exception identity and ``__context__`` deliberately do not cross it.
     # The action survives the 300-char truncation the MCP/REST surfaces apply.
     assert "check your notebook list before retrying" in str(raised.value)[:300].lower()
     # An ambiguity IS an unconfirmed create (#2220): nothing threw inside the
@@ -415,7 +451,10 @@ async def test_create_baseline_failure_makes_a_match_ambiguous(
     # a notebook either way, which is precisely what the marker names.
     assert getattr(raised.value, "unconfirmed", False) is True
     # One create attempt: the ambiguity aborts the loop, it does not re-issue.
-    assert api._rpc.rpc_call.await_count == 1
+    create_calls = [
+        call for call in rpc_call.await_args_list if call.args[0] is RPCMethod.CREATE_NOTEBOOK
+    ]
+    assert len(create_calls) == 1
     # The swallow is visible at the default logger level (WARNING), not DEBUG.
     assert "baseline list() failed" in caplog.text
 
@@ -428,9 +467,7 @@ class TestCreateNotebookQuotaDetection:
         # can detect a server-side commit on a transient transport
         # failure. Stub ``list`` so the canonical-payload assertion only
         # observes the CREATE_NOTEBOOK call.
-        api = _make_api()
-        api.list = AsyncMock(return_value=[])  # baseline empty
-        api._rpc.rpc_call.return_value = [
+        result = [
             "Daily News",
             None,
             "new_notebook_id",
@@ -438,21 +475,22 @@ class TestCreateNotebookQuotaDetection:
             None,
             [None, False, None, None, None, [1704067200, 0]],
         ]
+        rpc_call = _create_rpc(create_result=result)
+        api = _make_api(rpc_call=rpc_call)
 
         notebook = await api.create("Daily News")
 
         assert notebook.id == "new_notebook_id"
-        api._rpc.rpc_call.assert_awaited_once_with(
+        create_call = rpc_call.await_args_list[-1]
+        assert create_call.args == (
             RPCMethod.CREATE_NOTEBOOK,
             build_create_notebook_params("Daily News"),
-            disable_internal_retries=True,
         )
+        assert create_call.kwargs["disable_internal_retries"] is True
 
     @pytest.mark.asyncio
     async def test_create_retains_and_caches_volunteered_chat_session(self) -> None:
-        api = _make_api()
-        api.list = AsyncMock(return_value=[])
-        api._rpc.rpc_call.return_value = [
+        result = [
             "Session Notebook",
             None,
             "nb-session",
@@ -466,6 +504,7 @@ class TestCreateNotebookQuotaDetection:
             None,
             [["chat-session-1"]],
         ]
+        api = _make_api(rpc_call=_create_rpc(create_result=result))
 
         notebook = await api.create("Session Notebook")
 
@@ -476,21 +515,27 @@ class TestCreateNotebookQuotaDetection:
     @pytest.mark.asyncio
     async def test_create_invalid_argument_near_paid_limit_raises_limit_error(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        account_limits = _set_account_limit(api, 500)
-        api.list = AsyncMock(return_value=_owned_notebooks(499))
+        notebooks = _owned_notebooks(499)
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[notebooks, notebooks],
+            account_limit=500,
+        )
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(NotebookLimitError) as exc_info:
             await api.create("Daily News")
 
         assert exc_info.value.current_count == 499
         assert exc_info.value.limit == 500
-        assert exc_info.value.original_error is original
+        _assert_equivalent_rpc_error(exc_info.value.original_error, original)
         assert "499/500" in str(exc_info.value)
-        account_limits.assert_awaited_once()
-        # ``create`` calls ``list`` twice on an RPC failure path:
-        # once for the baseline snapshot, once for the quota check.
-        assert api.list.await_count == 2
+        assert [call.args[0] for call in rpc_call.await_args_list].count(
+            RPCMethod.GET_USER_SETTINGS
+        ) == 1
+        assert [call.args[0] for call in rpc_call.await_args_list].count(
+            RPCMethod.LIST_NOTEBOOKS
+        ) == 2
 
     @pytest.mark.asyncio
     async def test_quota_check_counts_owned_notebooks_the_user_has_shared(self):
@@ -502,11 +547,15 @@ class TestCreateNotebookQuotaDetection:
         notebooks are owned-and-shared, so a correct count reaches the limit.
         """
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
         owned_and_shared = _owned_but_shared_notebooks(500)
         assert all(nb.role is SharePermission.OWNER for nb in owned_and_shared)
-        api.list = AsyncMock(return_value=owned_and_shared)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=original,
+                list_results=[owned_and_shared, owned_and_shared],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(NotebookLimitError) as exc_info:
             await api.create("At Paid Limit")
@@ -522,11 +571,15 @@ class TestCreateNotebookQuotaDetection:
         here — this path only runs to reclassify an already-failed create, so
         the worst case is a more specific error message, never a blocked create.
         """
-        api = _make_api(rpc_call=AsyncMock(side_effect=_create_invalid_argument_error()))
-        _set_account_limit(api, 500)
         unstated = [Notebook(id=f"nb_{i}", title=f"N{i}") for i in range(500)]
         assert all(nb.role is None for nb in unstated)
-        api.list = AsyncMock(return_value=unstated)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=_create_invalid_argument_error(),
+                list_results=[unstated, unstated],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(NotebookLimitError) as exc_info:
             await api.create("Unknown Roles")
@@ -536,9 +589,14 @@ class TestCreateNotebookQuotaDetection:
     @pytest.mark.asyncio
     async def test_quota_check_excludes_notebooks_shared_with_the_user(self):
         """Notebooks owned by *someone else* still must not count toward quota."""
-        api = _make_api(rpc_call=AsyncMock(side_effect=_create_invalid_argument_error()))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(return_value=_owned_notebooks(100) + _shared_notebooks(400))
+        notebooks = _owned_notebooks(100) + _shared_notebooks(400)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=_create_invalid_argument_error(),
+                list_results=[notebooks, notebooks],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Mostly Someone Else's")
@@ -548,9 +606,14 @@ class TestCreateNotebookQuotaDetection:
     @pytest.mark.asyncio
     async def test_create_invalid_argument_at_paid_limit_raises_limit_error(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(return_value=_owned_notebooks(500))
+        notebooks = _owned_notebooks(500)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=original,
+                list_results=[notebooks, notebooks],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(NotebookLimitError) as exc_info:
             await api.create("At Paid Limit")
@@ -560,9 +623,14 @@ class TestCreateNotebookQuotaDetection:
 
     @pytest.mark.asyncio
     async def test_create_invalid_argument_near_free_limit_raises_limit_error(self):
-        api = _make_api(rpc_call=AsyncMock(side_effect=_create_invalid_argument_error()))
-        _set_account_limit(api, 100)
-        api.list = AsyncMock(return_value=_owned_notebooks(100))
+        notebooks = _owned_notebooks(100)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=_create_invalid_argument_error(),
+                list_results=[notebooks, notebooks],
+                account_limit=100,
+            )
+        )
 
         with pytest.raises(NotebookLimitError) as exc_info:
             await api.create("Free Limit")
@@ -573,167 +641,214 @@ class TestCreateNotebookQuotaDetection:
     @pytest.mark.asyncio
     async def test_create_invalid_argument_uses_account_limit_not_free_boundary(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(return_value=_owned_notebooks(100))
+        notebooks = _owned_notebooks(100)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=original,
+                list_results=[notebooks, notebooks],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Paid Account At Free Boundary")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
 
     @pytest.mark.asyncio
     async def test_create_invalid_argument_away_from_server_limit_preserves_rpc_error(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(return_value=_owned_notebooks(250))
+        notebooks = _owned_notebooks(250)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=original,
+                list_results=[notebooks, notebooks],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Probably Bad Payload")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
 
     @pytest.mark.asyncio
     async def test_non_quota_rpc_code_preserves_rpc_error_without_listing(self):
         original = _create_invalid_argument_error(rpc_code=13)
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        api._get_account_limits = AsyncMock(  # type: ignore[method-assign]
-            return_value=AccountLimits(notebook_limit=500)
-        )
-        api.list = AsyncMock(return_value=_owned_notebooks(500))
+        rpc_call = _create_rpc(create_error=original, list_results=[_owned_notebooks(500)])
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Internal Failure")
 
-        assert exc_info.value is original
-        api._get_account_limits.assert_not_awaited()
+        _assert_equivalent_rpc_error(exc_info.value, original)
+        assert not any(
+            invoked.args[0] is RPCMethod.GET_USER_SETTINGS for invoked in rpc_call.await_args_list
+        )
         # baseline list runs once before CREATE_NOTEBOOK; no
         # quota-check list because the RPC code (13) is not the
         # quota-exhausted code (3).
-        assert api.list.await_count == 1
+        assert [item.args[0] for item in rpc_call.await_args_list].count(
+            RPCMethod.LIST_NOTEBOOKS
+        ) == 1
 
     @pytest.mark.asyncio
     async def test_non_create_method_preserves_rpc_error_without_listing(self):
         original = _create_invalid_argument_error(method_id=RPCMethod.GET_NOTEBOOK.value)
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        api._get_account_limits = AsyncMock(  # type: ignore[method-assign]
-            return_value=AccountLimits(notebook_limit=500)
-        )
-        api.list = AsyncMock(return_value=_owned_notebooks(500))
+        rpc_call = _create_rpc(create_error=original, list_results=[_owned_notebooks(500)])
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Unexpected Method")
 
-        assert exc_info.value is original
-        api._get_account_limits.assert_not_awaited()
+        _assert_equivalent_rpc_error(exc_info.value, original)
+        assert not any(
+            invoked.args[0] is RPCMethod.GET_USER_SETTINGS for invoked in rpc_call.await_args_list
+        )
         # baseline list runs once before CREATE_NOTEBOOK; no
         # quota-check list because the failing method isn't CREATE_NOTEBOOK.
-        assert api.list.await_count == 1
+        assert [item.args[0] for item in rpc_call.await_args_list].count(
+            RPCMethod.LIST_NOTEBOOKS
+        ) == 1
 
     @pytest.mark.asyncio
     async def test_shared_notebooks_do_not_trigger_owned_quota_error(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(return_value=_owned_notebooks(20) + _shared_notebooks(479))
+        notebooks = _owned_notebooks(20) + _shared_notebooks(479)
+        api = _make_api(
+            rpc_call=_create_rpc(
+                create_error=original,
+                list_results=[notebooks, notebooks],
+                account_limit=500,
+            )
+        )
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Shared Notebooks Should Not Count")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
 
     @pytest.mark.asyncio
     async def test_account_limit_failure_preserves_original_create_error_without_listing(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        api._get_account_limits = AsyncMock(  # type: ignore[method-assign]
-            side_effect=NetworkError("settings failed")
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[_owned_notebooks(500)],
+            settings_error=NetworkError("settings failed"),
         )
-        api.list = AsyncMock(return_value=_owned_notebooks(500))
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Settings Fails")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
         # only the baseline list runs; the quota-check list is
         # skipped because account-limit lookup itself failed.
-        assert api.list.await_count == 1
+        assert [item.args[0] for item in rpc_call.await_args_list].count(
+            RPCMethod.LIST_NOTEBOOKS
+        ) == 1
 
     @pytest.mark.asyncio
     async def test_account_limit_rpc_error_preserves_original_create_error_without_listing(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        api._get_account_limits = AsyncMock(  # type: ignore[method-assign]
-            side_effect=RPCError("settings failed")
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[_owned_notebooks(500)],
+            settings_error=RPCError("settings failed"),
         )
-        api.list = AsyncMock(return_value=_owned_notebooks(500))
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("Settings RPC Fails")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
         # only the baseline list runs.
-        assert api.list.await_count == 1
+        assert [item.args[0] for item in rpc_call.await_args_list].count(
+            RPCMethod.LIST_NOTEBOOKS
+        ) == 1
 
     @pytest.mark.asyncio
     async def test_missing_account_limit_preserves_original_create_error_without_listing(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, None)
-        api.list = AsyncMock(return_value=_owned_notebooks(500))
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[_owned_notebooks(500)],
+            account_limit=None,
+        )
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("No Limit")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
         # only the baseline list runs.
-        assert api.list.await_count == 1
+        assert [item.args[0] for item in rpc_call.await_args_list].count(
+            RPCMethod.LIST_NOTEBOOKS
+        ) == 1
 
     @pytest.mark.asyncio
     async def test_list_failure_preserves_original_create_error(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(side_effect=NetworkError("list failed"))
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[[], NetworkError("list failed")],
+            account_limit=500,
+        )
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("List Fails")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
 
     @pytest.mark.asyncio
     async def test_list_parse_bug_preserves_original_create_error(self):
         original = _create_invalid_argument_error()
-        api = _make_api(rpc_call=AsyncMock(side_effect=original))
-        _set_account_limit(api, 500)
-        api.list = AsyncMock(side_effect=ValueError("bad notebook data"))
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[[], ValueError("bad notebook data")],
+            account_limit=500,
+        )
+        api = _make_api(rpc_call=rpc_call)
 
         with pytest.raises(RPCError) as exc_info:
             await api.create("List Parse Fails")
 
-        assert exc_info.value is original
+        _assert_equivalent_rpc_error(exc_info.value, original)
 
     @pytest.mark.asyncio
-    async def test_get_account_limits_uses_user_settings_rpc(self):
-        api = _make_api(rpc_call=AsyncMock(return_value=[[None, [6, 500, 300, 500000, 2]]]))
-
-        limits = await api._get_account_limits()
-
-        assert limits == AccountLimits(
-            notebook_limit=500,
-            source_limit=300,
-            raw_limits=(6, 500, 300, 500000, 2),
-            tier=2,
+    async def test_quota_detection_uses_user_settings_rpc(self):
+        original = _create_invalid_argument_error()
+        rpc_call = _create_rpc(
+            create_error=original,
+            list_results=[[], _owned_notebooks(100)],
+            account_limit=500,
         )
-        api._rpc.rpc_call.assert_awaited_once_with(
-            RPCMethod.GET_USER_SETTINGS,
-            [None, [1, None, None, None, None, None, None, None, None, None, [1]]],
-            source_path="/",
+        api = _make_api(rpc_call=rpc_call)
+
+        with pytest.raises(RPCError):
+            await api.create("Daily News")
+
+        settings_call = next(
+            item for item in rpc_call.await_args_list if item.args[0] is RPCMethod.GET_USER_SETTINGS
         )
+        assert settings_call.args[1] == [
+            None,
+            [1, None, None, None, None, None, None, None, None, None, [1]],
+        ]
+        assert settings_call.kwargs["source_path"] == "/"
 
 
 class TestUpdateNotebook:
+    @pytest.mark.asyncio
+    async def test_rename_rejects_empty_title_before_rpc(self) -> None:
+        api = _make_api()
+
+        with pytest.raises(ValidationError, match="must not be empty"):
+            await api.rename("nb-1", "")
+
+        api._rpc.rpc_call.assert_not_awaited()
+
     @pytest.mark.asyncio
     async def test_rename_preserves_title_only_wire_shape(self) -> None:
         rpc_call = AsyncMock(
@@ -769,7 +884,8 @@ class TestUpdateNotebook:
             RPCMethod.RENAME_NOTEBOOK,
             ["nb-1", [[None, None, None, [None, None, "🧬"]]]],
         )
-        assert first.kwargs == {"source_path": "/", "allow_null": True}
+        assert first.kwargs["source_path"] == "/"
+        assert first.kwargs["allow_null"] is True
 
     @pytest.mark.asyncio
     async def test_update_title_and_emoji_in_one_mutation(self) -> None:
@@ -788,6 +904,16 @@ class TestUpdateNotebook:
             "nb-1",
             [[None, None, None, [None, "Renamed", "📖"]]],
         ]
+
+    @pytest.mark.asyncio
+    async def test_update_readback_not_found_reconstructs_public_error(self) -> None:
+        api = _make_api(rpc_call=AsyncMock(side_effect=[None, []]))
+
+        with pytest.raises(NotebookNotFoundError) as caught:
+            await api.rename("nb-missing", "Renamed")
+
+        assert caught.value.notebook_id == "nb-missing"
+        assert caught.value.method_id == RPCMethod.GET_NOTEBOOK.value
 
     @pytest.mark.asyncio
     async def test_update_requires_at_least_one_property(self) -> None:

@@ -236,6 +236,7 @@ def test_rpc_ast_walk_distinguishes_calls_from_decoder_references() -> None:
         "_notebooks.py:NotebooksAPI.get_raw",
         "_source/listing.py:SourceLister.list",
         "_web/backend.py:WebRpcBackend._notebook_get",
+        "_web/backend.py:WebRpcBackend._notebook_update",
         "_web/backend.py:WebRpcBackend._source_get",
         "_web/backend.py:WebRpcBackend._source_list",
     ]
@@ -669,7 +670,7 @@ def test_update_and_chat_recency_conditions_are_explicit() -> None:
             "maximum_calls": 1,
             "unit": "public_call",
             "condition": "always after a successful mutation",
-            "authority_sites": ["_web/backend.py:WebRpcBackend._notebook_get"],
+            "authority_sites": ["_web/backend.py:WebRpcBackend._notebook_update"],
         }
     ]
     chat_contracts = rows["chat.configure"]["recency_contract"]

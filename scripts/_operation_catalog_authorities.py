@@ -70,7 +70,7 @@ SHARED_RPC_AUTHORITY_RULES: dict[tuple[Operation, NativeKey], tuple[AuthorityRul
         ("_web/backend.py:WebRpcBackend._notebook_get", "null-timestamp backfill only")
     ),
     (Operation.NOTEBOOK_UPDATE, _b(RPCMethod.GET_NOTEBOOK)): _rules(
-        ("_web/backend.py:WebRpcBackend._notebook_get", "unconditional post-mutation read")
+        ("_web/backend.py:WebRpcBackend._notebook_update", "unconditional post-mutation read")
     ),
     (Operation.NOTEBOOK_METADATA, _b(RPCMethod.GET_NOTEBOOK)): _rules(
         ("_web/backend.py:WebRpcBackend._notebook_get", "metadata notebook branch"),
@@ -278,6 +278,7 @@ class RecencyRule:
 
 
 _GET_TYPED = "_web/backend.py:WebRpcBackend._notebook_get"
+_UPDATE_TYPED = "_web/backend.py:WebRpcBackend._notebook_update"
 _GET_RAW = "_notebooks.py:NotebooksAPI.get_raw"
 _GET_SOURCES = "_source/listing.py:SourceLister.list"
 _GET_SOURCE_LIST = "_web/backend.py:WebRpcBackend._source_list"
@@ -312,7 +313,7 @@ RECENCY_CONTRACTS: dict[Operation, tuple[RecencyRule, ...]] = {
             1,
             "public_call",
             "always after a successful mutation",
-            (_GET_TYPED,),
+            (_UPDATE_TYPED,),
         ),
     ),
     Operation.NOTEBOOK_METADATA: (
@@ -515,7 +516,7 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_artifacts.py:ArtifactsAPI.rename", "kind=INTERACTIVE")
         ),
         (Operation.NOTEBOOK_UPDATE, _b(RPCMethod.RENAME_NOTEBOOK)): _rules(
-            ("_notebooks.py:NotebooksAPI.update", "title|emoji mutation")
+            ("_web/backend.py:WebRpcBackend._notebook_update", "title|emoji mutation")
         ),
         (Operation.CHAT_CONFIGURE, _b(RPCMethod.RENAME_NOTEBOOK)): _rules(
             ("_chat/api.py:ChatAPI.configure", "chat settings mutation payload")
@@ -639,7 +640,7 @@ SHARED_RPC_AUTHORITY_RULES.update(
             ("_sharing.py:SharingAPI.get_status", "post-user-grant mutation read")
         ),
         (Operation.NOTEBOOK_CREATE, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
-            ("_notebooks.py:NotebooksAPI._get_account_limits", "quota-error diagnosis only")
+            ("_web/backend.py:WebRpcBackend._notebook_limit_error", "quota-error diagnosis only")
         ),
         (Operation.SOURCE_ADD_FILE, _b(RPCMethod.GET_USER_SETTINGS)): _rules(
             ("_sources.py:SourcesAPI._get_source_limit", "invalid-argument diagnosis only")
