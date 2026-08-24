@@ -70,8 +70,8 @@
       ],
       "leaf_calls": 1,
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "positive-float",
-        "lock_wait_seconds_total": "positive-float",
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -100,8 +100,8 @@
       ],
       "leaf_calls": 1,
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "positive-float",
-        "lock_wait_seconds_total": "positive-float",
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 0,
         "rpc_calls_started": 1,
@@ -132,8 +132,8 @@
       ],
       "leaf_calls": 1,
       "metrics_snapshot": {
-        "lock_wait_seconds_max": "positive-float",
-        "lock_wait_seconds_total": "positive-float",
+        "lock_wait_seconds_max": 0.0,
+        "lock_wait_seconds_total": 0.0,
         "rpc_auth_retries": 0,
         "rpc_calls_failed": 1,
         "rpc_calls_started": 1,
