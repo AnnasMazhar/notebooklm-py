@@ -878,14 +878,16 @@ P0 operation inventory + ADR
   acknowledge drift.
 - Register `json_envelope` as the closed-world adapter-shape contract. Its primary channel rows
   freeze 31 model identities / 133 projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST:
-  313 unique ids. `adapter_sink_reachability` discovers 349 terminal/error sites and assigns 225
-  public-projection, 116 reviewed non-public, and eight forwarding-infrastructure dispositions,
-  including 15 mixed-site non-public variants. Every live projection id has a terminal allocation;
-  adapter registrations and direct JSON bypasses fail closed. It also pins 19 private DTO -> public
-  dataclass paths and 16 delegated-helper fingerprints. Eighteen paths link to live projections;
-  the `SourceRefreshResult.result` public-valued arm is proven production-dead by AST fingerprint
-  plus mutation test. `AuthTokens` is excluded from the exported/full-key inventory and admitted
-  only through the two exact redacted MCP/REST `server_info` contributions described above.
+  313 unique ids. `adapter_sink_reachability` discovers 350 terminal/error sites and assigns 225
+  public-projection, 117 reviewed non-public, and eight forwarding-infrastructure dispositions,
+  including 15 non-public variants across 14 mixed sites. Every live projection id has a terminal
+  allocation;
+  adapter registrations and direct JSON bypasses fail closed. It also pins 36 private DTO -> public
+  dataclass paths and 16 delegated-helper fingerprints. Thirty-four paths link to live projections;
+  `SourceRefreshResult.result` is production-dead and `ValidatedSessionConfig.limits` is confined
+  to internal runtime configuration. `AuthTokens` is excluded from the exported/full-key inventory
+  and admitted only through the two exact redacted MCP/REST `server_info` contributions described
+  above.
 - Register a `metrics_contract` baseline -- `ClientMetricsSnapshot` field names/types plus per-RPC
   `RpcTelemetryEvent` emission points -- **before P1 lands**. The primary characterization calls
   public `NotebookLMClient.rpc_call()` through the production-composed middleware and
@@ -1583,14 +1585,17 @@ REST 32 / 57: 313 unique ids. A separate `exported_dataclass_key_inventory` capt
 `to_jsonable` behavior of all 49 non-secret exported dataclasses, and import-only references remain
 explicitly supplemental.
 
-The baseline also embeds `adapter_sink_reachability`, a closed-world allocation of all 349
-terminal/error sites: 225 public-projection, 116 reviewed non-public, and eight forwarding
-infrastructure, with 15 conditional non-public variants on mixed terminals. Discovery includes CLI
-JSON success/error/direct emissions, MCP tool/error funnels and auxiliary connector routes, and REST
-route/app/error sites. Every live projection id is terminal-allocated; a new registration or direct
-JSON bypass fails closed. Nineteen private DTO -> public dataclass paths and 16 delegated-helper
-fingerprints close the transitive/helper gap; 18 paths are linked, while the single public-valued
-`SourceRefreshResult.result` arm is AST-fingerprinted and mutation-proven production-dead.
+The baseline also embeds `adapter_sink_reachability`, a closed-world allocation of all 350
+terminal/error sites: 225 public-projection, 117 reviewed non-public, and eight forwarding
+infrastructure, with 15 conditional non-public variants across 14 mixed terminals. Discovery
+includes CLI JSON success/error/direct emissions, MCP tool/error funnels and auxiliary connector
+routes, and REST route/app/error sites. Every live projection id is terminal-allocated; a new
+registration or direct JSON bypass fails closed. Thirty-six private DTO -> public dataclass paths
+and 16 delegated-helper fingerprints close the transitive/helper gap; 34 paths are linked, while
+`SourceRefreshResult.result` is mutation-proven production-dead and
+`ValidatedSessionConfig.limits` is source-proven internal-runtime-only. Thirty-seven declarations
+across 28 literal final-dict sites derive their top-level shape from the AST; 168 explicit rows
+remain honestly manual-reviewed.
 
 `AuthTokens` remains excluded from the exported/full-`to_jsonable` inventory. Direct, aliased,
 annotated, client-property, and nested-container recursive serialization fails the derivation. The
@@ -1699,14 +1704,14 @@ pins first-party state-hook ownership and successful `Notebook` / `ChatReference
 restores. The JSON baseline's primary channel inventory contains 31 model identities / 133
 projections for CLI, 32 / 123 for MCP, and 32 / 57 for REST: 313 unique projection ids. Its
 49-dataclass non-secret full-key inventory and import-reference counts (9 / 4 / 0 respectively) are
-supplemental. `adapter_sink_reachability` closes the adapter graph over 349 exact terminal/error
-sites: 225 carry public projections, 116 are reviewed non-public, and eight are forwarding
-infrastructure; 15 mixed sites carry conditional non-public variants. All 313 live ids are
-allocated. It also records 19 private DTO -> public dataclass paths (18 linked and one
-production-dead public-valued arm) and 16 delegated-helper fingerprints. Adapter registrations and
-direct JSON emissions are fail-closed. `AuthTokens` remains out of the full-key inventory and is
-reachable only through the exact redacted MCP/REST `server_info` identity projections; credential
-serialization remains forbidden.
+supplemental. `adapter_sink_reachability` closes the adapter graph over 350 exact terminal/error
+sites: 225 carry public projections, 117 are reviewed non-public, and eight are forwarding
+infrastructure. Fifteen conditional non-public variants are pinned across 14 mixed sites. All 313
+live ids are allocated. It also records 36 private DTO -> public dataclass paths (34 linked, one
+production-dead public-valued arm, and one internal-runtime-only path) and 16 delegated-helper
+fingerprints. Adapter registrations and direct JSON emissions are fail-closed. `AuthTokens` remains
+out of the full-key inventory and is reachable only through the exact redacted MCP/REST
+`server_info` identity projections; credential serialization remains forbidden.
 
 The catalog also records 86 semantic operations, 47 RPC ids, 56 native rows, 146 public namespace
 methods (eight local-only), and ten public root-client members. It carries 11 reviewed divergences:
@@ -1777,8 +1782,8 @@ The registered projections and compatibility gates reproduce the remaining value
 uv run python scripts/audit_operation_catalog.py --json | uv run python -c \
   'import json,sys; c=json.load(sys.stdin); print({"operations": len(c["operations"]), "rpc_ids": len({r["rpc_method"] for r in c["native_bindings"]}), "native_rows": len(c["native_bindings"]), "namespace_methods": len(c["public_methods"]), "namespace_local_only": sum(r["disposition"] == "local_only" for r in c["public_methods"].values()), "root_client_members": len(c["client_members"]), "allocated_authority_rows": sum(len(r["execution_authorities"]) for r in c["operations"]), "multi_authority_operations": sum(len(r["execution_authorities"]) > 1 for r in c["operations"]), "multi_site_native_rows": sum(len(r["execution_authorities"]) > 1 for r in c["native_bindings"]), "authority_divergences": sum(r["kind"] == "authority" for r in c["known_divergences"]), "policy_divergences": sum(r["kind"] == "policy" for r in c["known_divergences"]), "golden_not_recorded": sum(r["golden_disposition"] == "not_recorded" for r in c["native_bindings"]), "override_honored": sum(r["override_honored"] for r in c["native_bindings"])})'
 # JSON envelope totals: CLI 31 models/133 projections, MCP 32/123, REST 32/57;
-# 313 unique ids. Sink totals: 349 = 225 projection + 116 reviewed non-public
-# + 8 infrastructure; 15 conditional non-public variants, 19 private paths,
+# 313 unique ids. Sink totals: 350 = 225 projection + 117 reviewed non-public
+# + 8 infrastructure; 15 conditional non-public variants, 36 private paths,
 # and 16 delegated-helper fingerprints.
 uv run python - <<'PY'
 import json

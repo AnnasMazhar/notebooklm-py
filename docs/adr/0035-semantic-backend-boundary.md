@@ -140,16 +140,19 @@ P0 establishes evidence before runtime delegation:
   for CLI, 32 / 123 for MCP, and 32 / 57 for REST: 313 unique projection ids. A supplemental
   inventory records full `to_jsonable` keys for every non-secret exported dataclass, but an import
   alone does not make a model channel-reachable.
-- The baseline's closed-world `adapter_sink_reachability` section discovers all 349 reviewed
-  terminal/error sites: 225 have public-projection dispositions, 116 are reviewed non-public, and
+- The baseline's closed-world `adapter_sink_reachability` section discovers all 350 reviewed
+  terminal/error sites: 225 have public-projection dispositions, 117 are reviewed non-public, and
   eight are forwarding infrastructure. It includes CLI JSON success/error/direct emissions, MCP
   tool returns and error funnels plus auxiliary connector/file-route responses, and REST
-  route/app/error terminals. Fifteen mixed terminals also pin conditional non-public variants.
+  route/app/error terminals. Fifteen conditional non-public variants are pinned across 14 mixed
+  terminals.
   Every one of the 313 live projection ids has a terminal allocation; new adapter registrations or
   direct JSON bypasses fail closed. Sixteen delegated-helper fingerprints cover the bounded helper
-  call graph. Nineteen private DTO -> public dataclass paths are exact: 18 link to live projections,
-  while `SourceRefreshResult.result` is the sole public-valued arm proven production-dead by a
-  semantic AST fingerprint and mutation test.
+  call graph. Thirty-six private DTO -> public dataclass paths are exact: 34 link to live
+  projections, while `SourceRefreshResult.result` is proven production-dead and
+  `ValidatedSessionConfig.limits` is confined to internal runtime configuration by semantic AST
+  fingerprints and mutation tests. Thirty-seven declarations across 28 literal final-dict sites
+  derive their top-level shapes from the AST; 168 explicitly reviewed declarations remain manual.
 - `AuthTokens` remains excluded from the exported/full-`to_jsonable` inventory and recursive
   credential serialization remains forbidden. It is adapter-reachable only through exactly two
   explicitly marked redacted contributions: MCP `server_info` and REST `server_info`.
