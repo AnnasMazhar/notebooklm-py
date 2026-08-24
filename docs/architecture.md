@@ -1054,6 +1054,7 @@ Per-file index plus the full `src/notebooklm` + `tests` repository tree. The tre
 | `_read_services.py` | Private P2.1 transport-neutral notebook/source list/get services; invokes only typed operation definitions through `BackendAdapter`, forwards `RuntimeDeadline`, and delegates public-model construction to `_projectors.py`. |
 | `_web/backend.py` | Web semantic backend over the existing `RpcExecutor`; seven P2.1/P2.2 handlers plus the staged P2.3 URL-source composite reuse current payload/row adapters and return neutral records. Notebook/source reads are active; notebook mutations and URL registration remain facade-inert. |
 | `_web/registry.py` | Closed web disposition registry over every `Operation`: seven executable typed P2.1/P2.2 handlers, one explicitly staged P2.3 URL handler rejected by production dispatch, and an unsupported disposition for every other operation. |
+| `_web/codec/documents.py` | First live P3 codec boundary: decodes the GET_SOURCE document body through the strict document row adapter into the exported, transport-neutral `StructuredDocument` value exemption. It owns no backend invocation or HTTP/RPC dispatch; chat and citation callers remain deferred to P6. |
 | `scripts/audit_operation_catalog.py` | Single build/audit CLI for the deterministic ADR-0022 projection: exact semantic authorities, native bindings, public/root-client dispositions, evidence, omissions, and divergences. |
 | `scripts/_operation_catalog_specs.py` | Reviewed semantic operation specifications, owners/policies/routes, native/web bindings, public methods, and dispositions. |
 | `scripts/_operation_catalog_authorities.py` | Exact RPC/stream/upload/download/orchestrator authority allocations, semantic discriminators, and recency contracts. |
@@ -1239,7 +1240,10 @@ src/notebooklm/
 ├── _web/                        # Private web implementation of the semantic backend port
 │   ├── __init__.py              # Private WebRpcBackend re-export
 │   ├── backend.py               # RpcExecutor-backed P2.1/P2.2 handlers + staged P2.3 URL composite
-│   └── registry.py              # Closed active/staged/unsupported web dispositions
+│   ├── registry.py              # Closed active/staged/unsupported web dispositions
+│   └── codec/                   # P3 web response codecs producing neutral records/value exemptions
+│       ├── __init__.py          # Private codec re-exports
+│       └── documents.py         # Tailwind document body -> exempt StructuredDocument value graph
 ├── _app/                        # Transport-neutral business-logic layer (CLI/MCP/HTTP adapters share it)
 │   ├── __init__.py              # Re-exports the neutral primitives
 │   ├── artifacts.py             # Click-free artifact core: get/rename/delete/export + poll/wait/retry; kind-aware mind-map dispatch (mind_maps.list for rename, notes.list_mind_maps for delete), get_artifact raises ArtifactNotFoundError, typed Rename/Export results + ArtifactStatusView/status_view neutral status DTO (CLI builds every --json envelope from the typed fields)

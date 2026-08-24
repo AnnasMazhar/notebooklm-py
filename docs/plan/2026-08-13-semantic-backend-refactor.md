@@ -1066,6 +1066,11 @@ first-class, pre-authorized outcome, not an escalation.
 
 **Purpose:** ensure public model compatibility no longer constrains live wire decoding.
 
+**Entry slice (2026-08-23):** GET_SOURCE now delegates `SourceFulltext.document` construction to
+`_web.codec.documents.decode_structured_document`. The codec returns the ADR-0035 exempt value graph
+and reuses the strict row adapter; scalar fulltext decoding and the existing GET_SOURCE execution
+authority are unchanged. Chat answer/citation construction remains assigned to P6.
+
 #### Changes
 
 - Establish `_web.codec` as the owner of positional request/response grammars for the resources
