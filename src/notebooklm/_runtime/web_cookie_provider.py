@@ -69,6 +69,9 @@ class RuntimeWebCookieProvider:
         self._base_refresh_task: asyncio.Future[AuthTokens] | None = None
         self._joined_refresh_lock: asyncio.Lock | None = None
         self._joined_refresh_task: asyncio.Task[None] | None = None
+        self._identity_lock: asyncio.Lock | None = None
+        self._identity_tasks: dict[bool, asyncio.Task[str | None]] = {}
+        self._identity_closing = False
         self._refresh_transaction_lock: asyncio.Lock | None = None
         self._close_task: asyncio.Task[None] | None = None
         self._current_generation = self._capture_generation(0)
@@ -106,6 +109,13 @@ class RuntimeWebCookieProvider:
         if lock is None:
             lock = asyncio.Lock()
             self._joined_refresh_lock = lock
+        return lock
+
+    def _get_identity_lock(self) -> asyncio.Lock:
+        lock = self._identity_lock
+        if lock is None:
+            lock = asyncio.Lock()
+            self._identity_lock = lock
         return lock
 
     def _capture_generation(self, generation: int) -> WebCookieGeneration:
@@ -146,6 +156,9 @@ class RuntimeWebCookieProvider:
         self._base_refresh_task = None
         self._joined_refresh_lock = None
         self._joined_refresh_task = None
+        self._identity_lock = None
+        self._identity_tasks = {}
+        self._identity_closing = False
         self._refresh_transaction_lock = None
         self._close_task = None
         async with self._get_refresh_transaction_lock():
@@ -223,7 +236,7 @@ class RuntimeWebCookieProvider:
     def get_account_authuser(self) -> int:
         return self._current_generation.authuser
 
-    async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
+    async def _resolve_account_email(self, *, live_fallback: bool) -> str | None:
         async with self._get_refresh_transaction_lock():
             await self._reconcile_locked()
             email, cached_email, cached_key = await resolve_account_email(
@@ -239,6 +252,30 @@ class RuntimeWebCookieProvider:
             self._account_email_cache = cached_email
             self._account_email_cache_route = cached_key
             return email
+
+    @staticmethod
+    def _observe_identity_task(task: asyncio.Task[str | None]) -> None:
+        """Retrieve detached-waiter failures without changing await semantics."""
+        if not task.cancelled():
+            task.exception()
+
+    async def get_account_email(self, *, live_fallback: bool = True) -> str | None:
+        """Resolve identity in a provider-owned task that teardown can cancel.
+
+        Calls with the same fallback policy share a task. Ordinary waiter
+        cancellation cannot tear down another caller's probe, while provider
+        close can cancel every outstanding identity operation before waiting
+        for the credential transaction lock.
+        """
+        async with self._get_identity_lock():
+            if self._identity_closing:
+                raise RuntimeError("web cookie provider is closing")
+            task = self._identity_tasks.get(live_fallback)
+            if task is None or task.done():
+                task = asyncio.create_task(self._resolve_account_email(live_fallback=live_fallback))
+                task.add_done_callback(self._observe_identity_task)
+                self._identity_tasks[live_fallback] = task
+        return await asyncio.shield(task)
 
     def register_open_baseline(self, store: ProfileStore, baseline: CookieJar) -> None:
         self._persistence.register_open_baseline(store, baseline)
@@ -295,9 +332,20 @@ class RuntimeWebCookieProvider:
             joined.cancel()
             await asyncio.gather(joined, return_exceptions=True)
 
+    async def _cancel_identity_tasks(self) -> None:
+        """Cancel provider-owned identity I/O before lock-bound teardown."""
+        async with self._get_identity_lock():
+            self._identity_closing = True
+            pending = [task for task in self._identity_tasks.values() if not task.done()]
+            for task in pending:
+                task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+
     async def _close_once(self) -> None:
         await self._cancel_refresh_leaders()
         await self._lifecycle.cancel_keepalive()
+        await self._cancel_identity_tasks()
         async with self._get_refresh_transaction_lock():
             await self._reconcile_locked()
             await self._lifecycle.close(

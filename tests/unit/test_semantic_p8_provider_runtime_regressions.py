@@ -453,6 +453,44 @@ async def test_close_without_drain_cancels_a_hung_direct_refresh(
 
 
 @pytest.mark.asyncio
+async def test_close_without_drain_cancels_a_hung_account_probe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Identity network I/O cannot hold the provider lock ahead of teardown."""
+    client = build_client_shell_for_tests(_auth(), async_client_factory=_session_factory)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def probe(_client: httpx.AsyncClient, _authuser: int) -> str | None:
+        started.set()
+        try:
+            await asyncio.Future()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    import notebooklm._runtime.web_cookie_provider as provider_module
+
+    monkeypatch.setattr(provider_module, "_probe_authuser", probe)
+
+    await client.__aenter__()
+    identity = asyncio.create_task(client.get_account_email())
+    await started.wait()
+    try:
+        await asyncio.wait_for(client.close(drain=False), timeout=0.5)
+        await asyncio.wait_for(cancelled.wait(), timeout=0.5)
+        assert client.is_connected is False
+        with pytest.raises(asyncio.CancelledError):
+            await identity
+    finally:
+        if not identity.done():
+            identity.cancel()
+        await asyncio.gather(identity, return_exceptions=True)
+        if client.is_connected:
+            await client.close(drain=False)
+
+
+@pytest.mark.asyncio
 async def test_provider_close_failure_is_retryable() -> None:
     """A failed awaited close must not permanently latch the provider as closed."""
     from notebooklm._web.backend import WebRpcBackend
