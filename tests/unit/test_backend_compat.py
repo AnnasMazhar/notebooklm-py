@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
+import textwrap
+from collections import Counter
 from collections.abc import Callable
 
 import pytest
@@ -30,6 +34,26 @@ from notebooklm.exceptions import (
     ServerError,
     UnknownRPCMethodError,
 )
+
+
+def test_project_backend_error_has_one_explicit_case_per_closed_reason() -> None:
+    """Every neutral reason has one mapping; copied dead branches fail closed."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(project_backend_error)))
+    cases = [
+        comparator.attr
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Compare)
+        and isinstance(node.left, ast.Name)
+        and node.left.id == "reason"
+        and len(node.ops) == 1
+        and isinstance(node.ops[0], ast.Is)
+        and len(node.comparators) == 1
+        and isinstance((comparator := node.comparators[0]), ast.Attribute)
+        and isinstance(comparator.value, ast.Name)
+        and comparator.value.id == "BackendErrorReason"
+    ]
+
+    assert Counter(cases) == Counter({reason.name: 1 for reason in BackendErrorReason})
 
 
 def _round_trip(error: RPCError | NetworkError) -> Exception:

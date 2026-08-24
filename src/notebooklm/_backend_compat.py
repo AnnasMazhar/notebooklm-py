@@ -415,62 +415,6 @@ def project_backend_error(error: BackendError) -> Exception:
         limit_projected.__context__ = original
         limit_projected.__suppress_context__ = True
         return _preserve_outcome(error, limit_projected)
-    if reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE:
-        artifact_type = _optional(error, diagnostics, "artifact_type", str)
-        if artifact_type is None:
-            raise BackendContractError(
-                "artifact-feature-unavailable compatibility error lacks artifact_type",
-                operation=error.operation,
-            )
-        return _preserve_outcome(
-            error,
-            ArtifactFeatureUnavailableError(
-                cast(str, artifact_type),
-                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
-                raw_response=cast(
-                    str | None,
-                    _optional(error, diagnostics, "raw_response", str),
-                ),
-            ),
-        )
-    if reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE:
-        artifact_type = _optional(error, diagnostics, "artifact_type", str)
-        if artifact_type is None:
-            raise BackendContractError(
-                "artifact-feature-unavailable compatibility error lacks artifact_type",
-                operation=error.operation,
-            )
-        return _preserve_outcome(
-            error,
-            ArtifactFeatureUnavailableError(
-                cast(str, artifact_type),
-                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
-                raw_response=cast(
-                    str | None,
-                    _optional(error, diagnostics, "raw_response", str),
-                ),
-            ),
-        )
-
-    if reason is BackendErrorReason.ARTIFACT_FEATURE_UNAVAILABLE:
-        artifact_type = _optional(error, diagnostics, "artifact_type", str)
-        if artifact_type is None:
-            raise BackendContractError(
-                "artifact-feature-unavailable compatibility error lacks artifact_type",
-                operation=error.operation,
-            )
-        return _preserve_outcome(
-            error,
-            ArtifactFeatureUnavailableError(
-                cast(str, artifact_type),
-                method_id=cast(str | None, _optional(error, diagnostics, "method_id", str)),
-                raw_response=cast(
-                    str | None,
-                    _optional(error, diagnostics, "raw_response", str),
-                ),
-            ),
-        )
-
     if reason is BackendErrorReason.LABEL_NOT_FOUND:
         kind = _label_kind(error, diagnostics)
         label_id = _optional(error, diagnostics, "label_id", str)
