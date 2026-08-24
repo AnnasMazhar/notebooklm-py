@@ -56,19 +56,7 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from .._middleware.context import (
-    RPC_CONTEXT_AUTH_SNAPSHOT,
-    RPC_CONTEXT_BUILD_REQUEST,
-    RPC_CONTEXT_DISABLE_INTERNAL_RETRIES,
-    RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES,
-    RPC_CONTEXT_LOG_LABEL,
-    RPC_CONTEXT_MAX_RESPONSE_BYTES,
-    RPC_CONTEXT_READ_TIMEOUT,
-    RPC_CONTEXT_REFRESH_BUDGET,
-    RPC_CONTEXT_RETRY_DEADLINE,
-    RPC_CONTEXT_RPC_METHOD,
-    RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS,
-)
+from .._middleware.context import RpcCallState
 from .._middleware.core import (
     NextCall,
     RpcRequest,
@@ -190,17 +178,17 @@ class RuntimeTransport:
         so a concurrent refresh cannot move the cookie jar between the
         rebuild and :meth:`Kernel.post`.
         """
-        context = request.context
-        build_request = context.get(RPC_CONTEXT_BUILD_REQUEST)
+        state = request.state
+        build_request = state.build_request
         if build_request is None:
             return request
 
         current_snapshot = await self._snapshot_provider()
-        context[RPC_CONTEXT_AUTH_SNAPSHOT] = current_snapshot
+        state.publish_auth_snapshot(current_snapshot)
         return materialize_rpc_request(
             build_request=build_request,
             snapshot=current_snapshot,
-            context=context,
+            state=state,
         )
 
     async def terminal(self, request: RpcRequest) -> RpcResponse:
@@ -221,29 +209,29 @@ class RuntimeTransport:
         materialized headers.
         """
         request = await self.refresh_request_for_current_auth(request)
-        context = request.context
-        log_label = context.get(RPC_CONTEXT_LOG_LABEL, "<unknown-chain-call>")
-        read_timeout = context.get(RPC_CONTEXT_READ_TIMEOUT)
+        state = request.state
         post_kwargs: dict[str, Any] = {}
-        if RPC_CONTEXT_MAX_RESPONSE_BYTES in context:
-            post_kwargs["max_response_bytes"] = context[RPC_CONTEXT_MAX_RESPONSE_BYTES]
+        if state.max_response_bytes is not None:
+            post_kwargs["max_response_bytes"] = state.max_response_bytes
         start = time.perf_counter()
         try:
             response = await self._kernel.post(
                 request.url,
                 headers=request.headers,
                 body=request.body,
-                read_timeout=read_timeout,
+                read_timeout=state.read_timeout,
                 **post_kwargs,
             )
         except (httpx.HTTPStatusError, httpx.RequestError) as exc:
+            state.record_failure(exc)
             raise_mapped_post_error(
-                log_label=log_label,
+                log_label=state.log_label or "<unknown-chain-call>",
                 exc=exc,
                 start=start,
                 logger=self._logger,
             )
-        return RpcResponse(response=response, context=context)
+        state.record_response(response.status_code)
+        return RpcResponse(response=response, state=state)
 
     async def perform_authed_post(
         self,
@@ -305,39 +293,25 @@ class RuntimeTransport:
         # fixture); it raises only when the currently-running loop differs
         # from the one captured at ``open()``-time.
         self._bound_loop_check()
-        context: dict[str, Any] = {
-            RPC_CONTEXT_BUILD_REQUEST: build_request,
-            RPC_CONTEXT_LOG_LABEL: log_label,
-            RPC_CONTEXT_DISABLE_INTERNAL_RETRIES: disable_internal_retries,
-            RPC_CONTEXT_RPC_METHOD: rpc_method,
-        }
-        if read_timeout is not None:
-            context[RPC_CONTEXT_READ_TIMEOUT] = read_timeout
-        if max_response_bytes is not None:
-            context[RPC_CONTEXT_MAX_RESPONSE_BYTES] = max_response_bytes
-        if disable_read_timeout_retries:
-            context[RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES] = True
-        # Only seed the shared refresh budget when one is supplied. Callers
-        # that drive the chain without a budget (the chat path) leave the key
-        # ABSENT, matching the ``RPC_CONTEXT_REFRESH_BUDGET`` docstring; the
-        # auth-refresh middleware then falls back to its per-chain
-        # ``RPC_CONTEXT_AUTH_REFRESHED`` boolean.
-        if refresh_budget is not None:
-            context[RPC_CONTEXT_REFRESH_BUDGET] = refresh_budget
-        # Only seed the aggregate retry deadline when one is supplied. Callers
-        # that drive the chain without an aggregate deadline (the chat path)
-        # leave the key ABSENT; ``RetryMiddleware`` then mints its own via
-        # ``_start_retry_deadline()`` (issue #1873).
-        if retry_deadline is not None:
-            context[RPC_CONTEXT_RETRY_DEADLINE] = retry_deadline
         snapshot = await self._snapshot_provider()
+        state = RpcCallState.create(
+            build_request=build_request,
+            log_label=log_label,
+            rpc_method=rpc_method,
+            disable_internal_retries=disable_internal_retries,
+            disable_read_timeout_retries=disable_read_timeout_retries,
+            read_timeout=read_timeout,
+            max_response_bytes=max_response_bytes,
+            refresh_budget=refresh_budget,
+            retry_deadline=retry_deadline,
+            auth_snapshot=snapshot,
+        )
 
         request = materialize_rpc_request(
             build_request=build_request,
             snapshot=snapshot,
-            context=context,
+            state=state,
         )
-        context[RPC_CONTEXT_AUTH_SNAPSHOT] = snapshot
 
         # The ``max_concurrent_rpcs`` slot is acquired by
         # :class:`SemaphoreMiddleware` (chain position 2, between Metrics
@@ -374,7 +348,7 @@ class RuntimeTransport:
             # ``request.context[RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS]`` after the
             # semaphore is acquired; absence of the key means the slot
             # was never acquired and there's nothing to record.
-            queue_wait = request.context.get(RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS)
+            queue_wait = request.state.queue_wait_seconds
             if queue_wait is not None:
                 self._metrics.record_rpc_queue_wait(queue_wait)
 

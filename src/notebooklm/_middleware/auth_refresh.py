@@ -54,29 +54,19 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import httpx
 
-from .._auth_refresh_retry import RefreshBudget, refresh_and_count
-from .._request_types import AuthSnapshot, BuildRequest
+from .._auth_refresh_retry import refresh_and_count
+from .._request_types import AuthSnapshot
 from .._runtime.config import CORE_LOGGER_NAME
 from .._runtime.helpers import resolve_sleep
 from .._transport_errors import TransportAuthExpired
-from .context import (
-    RPC_CONTEXT_AUTH_REFRESHED,
-    RPC_CONTEXT_AUTH_SNAPSHOT,
-    RPC_CONTEXT_BUILD_REQUEST,
-    RPC_CONTEXT_DISABLE_INTERNAL_RETRIES,
-    RPC_CONTEXT_LOG_LABEL,
-    RPC_CONTEXT_REFRESH_BUDGET,
-    RPC_CONTEXT_RETRY_DEADLINE,
-)
 from .core import NextCall, RpcRequest, RpcResponse, materialize_rpc_request
 
 if TYPE_CHECKING:
     from .._client_metrics import ClientMetrics
-    from .._deadline import RuntimeDeadline
 
 
 class AuthRefreshMiddleware:
@@ -215,24 +205,18 @@ class AuthRefreshMiddleware:
            retry also raises, propagate unchanged (no second refresh,
            no recursion).
         """
-        log_label = request.context.get(RPC_CONTEXT_LOG_LABEL, "<unknown-chain-call>")
+        state = request.state
+        log_label = state.log_label or "<unknown-chain-call>"
         try:
             return await next_call(request)
         except httpx.HTTPStatusError as exc:
-            budget = cast(
-                "RefreshBudget | None",
-                request.context.get(RPC_CONTEXT_REFRESH_BUDGET),
-            )
-            already_refreshed = (
-                not budget.available
-                if budget is not None
-                else bool(request.context.get(RPC_CONTEXT_AUTH_REFRESHED))
-            )
+            budget = state.refresh_budget
+            already_refreshed = not budget.available if budget is not None else state.auth_refreshed
             if (
                 not self._refresh_callback_enabled()
                 or not self._is_auth_error(exc)
                 or already_refreshed
-                or bool(request.context.get(RPC_CONTEXT_DISABLE_INTERNAL_RETRIES, False))
+                or state.disable_internal_retries
             ):
                 # ``disable_internal_retries`` is the post-resolution
                 # effective bool (see :func:`_idempotency.
@@ -255,10 +239,7 @@ class AuthRefreshMiddleware:
             # deadline — mirroring the decode-time refresh path in
             # ``RpcExecutor.try_refresh_and_retry``. Absent (chat path) → the
             # historical unclamped delay is slept.
-            retry_deadline = cast(
-                "RuntimeDeadline | None",
-                request.context.get(RPC_CONTEXT_RETRY_DEADLINE),
-            )
+            retry_deadline = state.retry_deadline
 
             # Shared refresh body (log → refresh → on-failure raise → sleep →
             # log → metric). Refresh failure wraps the original auth
@@ -288,7 +269,7 @@ class AuthRefreshMiddleware:
             # terminal freshness rebuild observes the post-refresh marker.
             if budget is not None:
                 budget.consume()
-            request.context[RPC_CONTEXT_AUTH_REFRESHED] = True
+            state.mark_auth_refreshed()
 
             retry_request = await self._rebuild_request_after_refresh(request)
 
@@ -345,19 +326,18 @@ class AuthRefreshMiddleware:
         if self._snapshot_provider is None:
             return request
 
-        raw_build_request = request.context.get(RPC_CONTEXT_BUILD_REQUEST)
-        if raw_build_request is None:
+        build_request = request.state.build_request
+        if build_request is None:
             return request
 
-        build_request = cast(BuildRequest, raw_build_request)
         snapshot = await self._snapshot_provider()
         # Keep ``auth_snapshot`` and the rebuilt envelope paired in one
         # synchronous block; see ``test_concurrency_refresh_race``.
-        request.context[RPC_CONTEXT_AUTH_SNAPSHOT] = snapshot
+        request.state.publish_auth_snapshot(snapshot, refreshed=True)
         return materialize_rpc_request(
             build_request=build_request,
             snapshot=snapshot,
-            context=request.context,
+            state=request.state,
         )
 
 

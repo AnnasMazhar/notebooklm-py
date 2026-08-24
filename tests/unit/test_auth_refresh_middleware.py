@@ -46,7 +46,6 @@ import pytest
 
 from notebooklm._client_metrics import ClientMetrics
 from notebooklm._middleware.auth_refresh import AuthRefreshMiddleware
-from notebooklm._middleware.context import RPC_CONTEXT_RETRY_DEADLINE
 from notebooklm._middleware.core import NextCall, RpcRequest, RpcResponse, build_chain
 from notebooklm._request_types import AuthSnapshot
 from notebooklm._runtime.helpers import is_auth_error
@@ -58,7 +57,7 @@ from notebooklm._transport_errors import (
 
 # The ``tests/`` package chain is complete; ``tests._fixtures.chain`` is the
 # fully-qualified import path documented in ``tests/_fixtures/__init__.py``.
-from tests._fixtures.chain import make_request
+from tests._fixtures.chain import make_call_state, make_request
 
 
 def _recording_sleep() -> tuple[Callable[[float], Awaitable[None]], list[float]]:
@@ -87,7 +86,7 @@ def _scripted_terminal(behaviors: list[Any]) -> tuple[NextCall, list[RpcRequest]
         nxt = next(iterator)
         if isinstance(nxt, BaseException):
             raise nxt
-        return RpcResponse(response=nxt, context=request.context)
+        return RpcResponse(response=nxt, state=request.state)
 
     return terminal, calls
 
@@ -358,8 +357,8 @@ async def test_refresh_rebuilds_request_envelope_from_fresh_snapshot() -> None:
     assert retry_request.url == "https://example.test/x?sid=SID_NEW"
     assert retry_request.headers == {"X-Goog-AuthUser": "1"}
     assert retry_request.body == b"body-CSRF_NEW"
-    assert retry_request.context is request.context
-    assert request.context["auth_snapshot"] == fresh_snapshot
+    assert retry_request.state is request.state
+    assert request.state.auth_snapshot == fresh_snapshot
     assert build_snapshots == [fresh_snapshot]
 
 
@@ -443,7 +442,7 @@ async def test_refresh_retry_delay_clamped_by_inherited_deadline() -> None:
     middleware = _make_middleware(refresh_retry_delay=100.0, sleep=sleep)
     chain = build_chain([middleware], terminal)
 
-    await chain(make_request(context={RPC_CONTEXT_RETRY_DEADLINE: deadline}))
+    await chain(make_request(state=make_call_state(retry_deadline=deadline)))
 
     # Clamped to the remaining 2s, not the full 100s.
     assert slept == [2.0]
@@ -531,7 +530,7 @@ async def test_context_auth_refreshed_flag_set_after_first_refresh() -> None:
     request = make_request(context={"log_label": "RPC LIST_NOTEBOOKS"})
     await chain(request)
 
-    assert request.context["auth_refreshed"] is True
+    assert request.state.auth_refreshed is True
 
 
 # ---------------------------------------------------------------------------

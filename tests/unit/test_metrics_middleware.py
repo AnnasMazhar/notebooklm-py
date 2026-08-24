@@ -59,7 +59,7 @@ def _make_terminal_returning(response: httpx.Response) -> NextCall:
     """
 
     async def terminal(request: RpcRequest) -> RpcResponse:
-        return RpcResponse(response=response, context=request.context)
+        return RpcResponse(response=response, state=request.state)
 
     return terminal
 
@@ -358,10 +358,10 @@ async def test_pass_through_does_not_mutate_request(
 
     async def terminal(request: RpcRequest) -> RpcResponse:
         observed_request["instance"] = request
-        observed_request["context_keys"] = set(request.context)
+        observed_request["state"] = request.state
         return RpcResponse(
             response=httpx.Response(status_code=200, content=b""),
-            context=request.context,
+            state=request.state,
         )
 
     middleware = MetricsMiddleware(metrics)
@@ -376,6 +376,6 @@ async def test_pass_through_does_not_mutate_request(
     await chain(request)
 
     assert observed_request["instance"] is request
-    assert observed_request["context_keys"] == set(context_before)
-    # No new keys leaked back into the request context.
-    assert set(request.context) == set(context_before)
+    assert observed_request["state"] is request.state
+    assert request.state.log_label == "RPC LIST_NOTEBOOKS"
+    assert request.state.rpc_method == "LIST_NOTEBOOKS"

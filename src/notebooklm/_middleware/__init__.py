@@ -20,19 +20,7 @@ from . import (
 from .auth_refresh import AuthRefreshMiddleware
 from .chain import MiddlewareChainBuilder
 from .chain_host import MiddlewareChainHost
-from .context import (
-    ALLOWED_RPC_CONTEXT_KEYS,
-    RPC_CONTEXT_AUTH_REFRESHED,
-    RPC_CONTEXT_AUTH_SNAPSHOT,
-    RPC_CONTEXT_BUILD_REQUEST,
-    RPC_CONTEXT_DISABLE_INTERNAL_RETRIES,
-    RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES,
-    RPC_CONTEXT_LOG_LABEL,
-    RPC_CONTEXT_READ_TIMEOUT,
-    RPC_CONTEXT_REFRESH_BUDGET,
-    RPC_CONTEXT_RPC_METHOD,
-    RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS,
-)
+from .context import RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS, RpcCallState
 from .core import (
     Middleware,
     NextCall,
@@ -61,17 +49,8 @@ __all__ = [
     "AuthRefreshMiddleware",
     "MiddlewareChainBuilder",
     "MiddlewareChainHost",
-    "ALLOWED_RPC_CONTEXT_KEYS",
-    "RPC_CONTEXT_AUTH_REFRESHED",
-    "RPC_CONTEXT_AUTH_SNAPSHOT",
-    "RPC_CONTEXT_BUILD_REQUEST",
-    "RPC_CONTEXT_DISABLE_INTERNAL_RETRIES",
-    "RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES",
-    "RPC_CONTEXT_LOG_LABEL",
-    "RPC_CONTEXT_READ_TIMEOUT",
-    "RPC_CONTEXT_REFRESH_BUDGET",
-    "RPC_CONTEXT_RPC_METHOD",
     "RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS",
+    "RpcCallState",
     "Middleware",
     "NextCall",
     "RpcRequest",

@@ -24,12 +24,26 @@ from typing import Any
 
 import httpx
 
+from notebooklm._middleware.context import RpcCallState
 from notebooklm._middleware.core import (
     Middleware,
     RpcRequest,
     RpcResponse,
     build_chain,
 )
+
+
+def make_call_state(**values: Any) -> RpcCallState:
+    """Build typed call state; legacy context spellings ease test migration."""
+    auth_snapshot = values.pop("auth_snapshot", None)
+    auth_refreshed = bool(values.pop("auth_refreshed", False))
+    queue_wait = values.pop("rpc_queue_wait_seconds", None)
+    state = RpcCallState.create(auth_snapshot=auth_snapshot, **values)
+    if auth_refreshed:
+        state.mark_auth_refreshed()
+    if queue_wait is not None:
+        state.record_queue_wait(queue_wait)
+    return state
 
 
 class FakeChainTerminal:
@@ -59,7 +73,7 @@ class FakeChainTerminal:
 
     async def __call__(self, request: RpcRequest) -> RpcResponse:
         """Record the request and return the configured response envelope."""
-        self.calls.append({"request": request, "context": request.context})
+        self.calls.append({"request": request, "state": request.state})
 
         # Resolution priority: raises → response_factory → response →
         # built-in 200/empty default. The call is recorded before any
@@ -74,7 +88,7 @@ class FakeChainTerminal:
         else:
             response = httpx.Response(status_code=200, content=b"")
 
-        return RpcResponse(response=response, context=request.context)
+        return RpcResponse(response=response, state=request.state)
 
 
 def make_request(
@@ -94,15 +108,19 @@ def make_request(
             "url": "https://notebooklm.google.com/_/LabsTailwindUi/data/batchexecute?authuser=0&_reqid=100000",
             "headers": {"X-Goog-AuthUser": "0"},
             "body": b"",
-            "context": {},
+            "state": RpcCallState(),
         }
     else:
         defaults = {
             "url": base.url,
             "headers": dict(base.headers),
             "body": base.body,
-            "context": dict(base.context),
+            "state": base.state,
         }
+
+    legacy_context = overrides.pop("context", None)
+    if legacy_context is not None:
+        overrides["state"] = make_call_state(**legacy_context)
 
     unknown = set(overrides) - set(defaults)
     if unknown:
@@ -113,7 +131,7 @@ def make_request(
 
     defaults.update(overrides)
     if context_updates:
-        defaults["context"] = {**defaults["context"], **context_updates}
+        defaults["state"] = make_call_state(**context_updates)
     return RpcRequest(**defaults)
 
 
@@ -138,5 +156,6 @@ def chain_calls_through_to_terminal(
 __all__ = [
     "FakeChainTerminal",
     "chain_calls_through_to_terminal",
+    "make_call_state",
     "make_request",
 ]

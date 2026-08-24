@@ -33,14 +33,14 @@ def test_make_request_defaults_are_benign() -> None:
     assert req.url.startswith("https://notebooklm.google.com/")
     assert "X-Goog-AuthUser" in req.headers
     assert req.body == b""
-    assert req.context == {}
+    assert req.state.log_label is None
 
 
 def test_make_request_overrides_replace_defaults() -> None:
     req = make_request(url="https://x", body=b"payload", context={"rpc_method": "ListNotebooks"})
     assert req.url == "https://x"
     assert req.body == b"payload"
-    assert req.context == {"rpc_method": "ListNotebooks"}
+    assert req.state.rpc_method == "ListNotebooks"
 
 
 def test_make_request_unknown_kwarg_raises_type_error() -> None:
@@ -49,14 +49,14 @@ def test_make_request_unknown_kwarg_raises_type_error() -> None:
         make_request(rpc_method="ListNotebooks")  # should be in context
 
 
-def test_make_request_context_is_independent_per_call() -> None:
-    """Each call returns a fresh ``context`` dict — no shared mutable state."""
+def test_make_request_state_is_independent_per_call() -> None:
+    """Each call returns fresh typed state unless a base is supplied."""
     a = make_request()
     b = make_request()
-    changed = make_request(base=a, context_updates={"leak": "value"})
-    assert changed.context == {"leak": "value"}
-    assert a.context == {}
-    assert "leak" not in b.context
+    changed = make_request(base=a, context_updates={"log_label": "changed"})
+    assert changed.state.log_label == "changed"
+    assert a.state.log_label is None
+    assert b.state.log_label is None
 
 
 # ---------------------------------------------------------------------------
@@ -77,7 +77,7 @@ def test_fake_chain_terminal_records_calls() -> None:
     assert terminal.was_called is True
     assert terminal.call_count == 1
     assert terminal.calls[0]["request"] is request
-    assert terminal.calls[0]["context"] is request.context
+    assert terminal.calls[0]["state"] is request.state
 
 
 def test_fake_chain_terminal_default_response_is_fresh_each_call() -> None:
@@ -196,8 +196,8 @@ def test_chain_calls_through_with_multiple_middlewares_runs_all_in_order() -> No
     assert terminal.call_count == 1
 
 
-def test_chain_terminal_receives_context() -> None:
-    """The terminal receives the request context object."""
+def test_chain_terminal_receives_state() -> None:
+    """The terminal receives the typed request state."""
     terminal = FakeChainTerminal()
 
     async def stuff_context(request: RpcRequest, next_call: NextCall) -> RpcResponse:
@@ -220,6 +220,6 @@ def test_chain_terminal_receives_context() -> None:
 
     asyncio.run(driver())
     assert terminal.call_count == 1
-    context = terminal.calls[0]["context"]
-    assert context["log_label"] == "test-label"
-    assert context["disable_internal_retries"] is True
+    state = terminal.calls[0]["state"]
+    assert state.log_label == "test-label"
+    assert state.disable_internal_retries is True

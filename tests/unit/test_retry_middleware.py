@@ -132,7 +132,7 @@ def _scripted_terminal(behaviors: list[Any]) -> tuple[NextCall, list[RpcRequest]
         nxt = next(iterator)
         if isinstance(nxt, BaseException):
             raise nxt
-        return RpcResponse(response=nxt, context=request.context)
+        return RpcResponse(response=nxt, state=request.state)
 
     return terminal, calls
 

@@ -128,7 +128,7 @@ async def test_perform_authed_post_populates_request_envelope_for_chain() -> Non
 
     async def fake_chain(request: RpcRequest) -> RpcResponse:
         captured.append(request)
-        return RpcResponse(response=_ok_response(), context=request.context)
+        return RpcResponse(response=_ok_response(), state=request.state)
 
     core = _make_core(authed_post_terminal=fake_chain)
 
@@ -157,13 +157,13 @@ async def test_perform_authed_post_populates_request_envelope_for_chain() -> Non
         assert request.url == "https://example.test/x?authuser=0"
         assert request.headers == {"X-Test": "yes"}
         assert request.body == b"payload"
-        assert request.context["log_label"] == "RPC LIST_NOTEBOOKS"
-        assert request.context["disable_internal_retries"] is True
-        assert request.context["rpc_method"] == "LIST_NOTEBOOKS"
+        assert request.state.log_label == "RPC LIST_NOTEBOOKS"
+        assert request.state.disable_internal_retries is True
+        assert request.state.rpc_method == "LIST_NOTEBOOKS"
         assert len(calls) == 1
         assert calls[0].csrf_token == "CSRF_OLD"
-        assert request.context["build_request"] is build
-        assert request.context["auth_snapshot"] == calls[0]
+        assert request.state.build_request is build
+        assert request.state.auth_snapshot == calls[0]
     finally:
         await core.close()
 
@@ -251,7 +251,7 @@ async def test_auth_refresh_middleware_honors_injected_predicate() -> None:
         call_count["n"] += 1
         if call_count["n"] == 1:
             raise boom
-        return RpcResponse(response=_ok_response(), context=request.context)
+        return RpcResponse(response=_ok_response(), state=request.state)
 
     middleware = AuthRefreshMiddleware(
         refresh_callable=refresh,

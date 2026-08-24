@@ -24,6 +24,7 @@ import dataclasses
 import httpx
 import pytest
 
+from notebooklm._middleware.context import RpcCallState
 from notebooklm._middleware.core import (
     Middleware,
     NextCall,
@@ -38,7 +39,7 @@ from notebooklm._request_types import (
     BuildRequestResult,
     materialize_build_request,
 )
-from tests._fixtures.chain import make_request
+from tests._fixtures.chain import make_call_state, make_request
 
 # ---------------------------------------------------------------------------
 # RpcRequest / RpcResponse dataclass shape
@@ -59,10 +60,9 @@ def test_rpc_request_construction_with_defaults_and_overrides() -> None:
     assert req.url == "https://example/batchexecute?authuser=0&_reqid=100000"
     assert req.headers == {"X-Goog-AuthUser": "0"}
     assert req.body == b"f.req=..."
-    # ``context`` defaults to an empty dict, fresh per instance.
-    assert req.context == {}
+    assert req.state == RpcCallState()
     other = make_request(url="https://x", headers={}, body=b"")
-    assert other.context is not req.context  # independent dict instances
+    assert other.state is not req.state
 
 
 def test_rpc_request_is_frozen() -> None:
@@ -72,26 +72,32 @@ def test_rpc_request_is_frozen() -> None:
 
 
 def test_rpc_request_replace_returns_new_instance() -> None:
-    req = make_request(url="https://x", headers={"a": "1"}, body=b"", context={"k": "v"})
+    req = make_request(
+        url="https://x",
+        headers={"a": "1"},
+        body=b"",
+        state=make_call_state(log_label="test"),
+    )
     new = dataclasses.replace(req, url="https://y")
     assert new.url == "https://y"
     assert req.url == "https://x"  # original untouched
     # ``replace`` keeps the same context dict by reference (intentional —
     # ADR-0009 §"Per-request behavior").
-    assert new.context is req.context
+    assert new.state is req.state
 
 
 def test_rpc_response_construction() -> None:
     resp = _make_response()
-    rpc_resp = RpcResponse(response=resp, context={"trace_id": "abc"})
+    state = make_call_state(log_label="trace")
+    rpc_resp = RpcResponse(response=resp, state=state)
     assert rpc_resp.response is resp
-    assert rpc_resp.context == {"trace_id": "abc"}
+    assert rpc_resp.state is state
 
 
 def test_rpc_response_is_frozen() -> None:
     rpc_resp = RpcResponse(response=_make_response())
     with pytest.raises(dataclasses.FrozenInstanceError):
-        rpc_resp.context = {"x": 1}
+        rpc_resp.state = RpcCallState()
 
 
 # ---------------------------------------------------------------------------
@@ -398,8 +404,8 @@ def test_materialize_build_request_preserves_bytes_body_and_none_headers() -> No
     assert result.headers is None
 
 
-def test_materialize_rpc_request_populates_envelope_and_preserves_context_identity() -> None:
-    """The future middleware envelope keeps ADR-0009's shared context object."""
+def test_materialize_rpc_request_populates_envelope_and_preserves_state_identity() -> None:
+    """The middleware envelope keeps the exact typed state object."""
     snap = AuthSnapshot(csrf_token="csrf", session_id="sid", authuser=0, account_email=None)
 
     def factory(snapshot: AuthSnapshot) -> tuple[str, str, None]:
@@ -409,13 +415,13 @@ def test_materialize_rpc_request_populates_envelope_and_preserves_context_identi
             None,
         )
 
-    context = {"build_request": factory, "log_label": "RPC TEST_METHOD"}
-    request = materialize_rpc_request(build_request=factory, snapshot=snap, context=context)
+    state = make_call_state(build_request=factory, log_label="RPC TEST_METHOD")
+    request = materialize_rpc_request(build_request=factory, snapshot=snap, state=state)
 
     assert request.url == "https://example.test/batchexecute?authuser=0"
     assert request.headers == {}
     assert request.body == b"f.req=body&"
-    assert request.context is context
+    assert request.state is state
 
 
 def test_request_types_all_contains_only_public_names() -> None:

@@ -65,12 +65,6 @@ from .._deadline import Monotonic, RuntimeDeadline
 from .._runtime.config import CORE_LOGGER_NAME
 from .._runtime.helpers import resolve_sleep
 from .._transport_errors import TransportRateLimited, TransportServerError, parse_retry_after
-from .context import (
-    RPC_CONTEXT_DISABLE_INTERNAL_RETRIES,
-    RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES,
-    RPC_CONTEXT_LOG_LABEL,
-    RPC_CONTEXT_RETRY_DEADLINE,
-)
 from .core import NextCall, RpcRequest, RpcResponse
 
 if TYPE_CHECKING:
@@ -196,14 +190,10 @@ class RetryMiddleware:
         — the production path always populates it from
         :func:`_idempotency.resolve_effective_disable_internal_retries`.
         """
-        log_label = request.context.get(RPC_CONTEXT_LOG_LABEL, "<unknown-chain-call>")
-        # Post-resolution bool — see ADR-0009 §"Per-request behavior".
-        disable_internal_retries = bool(
-            request.context.get(RPC_CONTEXT_DISABLE_INTERNAL_RETRIES, False)
-        )
-        disable_read_timeout_retries = bool(
-            request.context.get(RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES, False)
-        )
+        state = request.state
+        log_label = state.log_label or "<unknown-chain-call>"
+        disable_internal_retries = state.disable_internal_retries
+        disable_read_timeout_retries = state.disable_read_timeout_retries
 
         rate_limit_retries = 0
         server_error_retries = 0
@@ -214,7 +204,7 @@ class RetryMiddleware:
         # chat path) do we mint a fresh per-chain deadline. ``RuntimeDeadline``
         # carries its own monotonic source, so an inherited deadline needs no
         # clock reconciliation here.
-        inherited_deadline = request.context.get(RPC_CONTEXT_RETRY_DEADLINE)
+        inherited_deadline = state.retry_deadline
         retry_deadline = (
             inherited_deadline if inherited_deadline is not None else self._start_retry_deadline()
         )
@@ -234,6 +224,7 @@ class RetryMiddleware:
                     retry_deadline=retry_deadline,
                 )
                 rate_limit_retries += 1
+                state.advance_retry_attempt()
                 if self._metrics is not None:
                     self._metrics.increment(rpc_rate_limit_retries=1)
                 continue
@@ -253,6 +244,7 @@ class RetryMiddleware:
                     retry_deadline=retry_deadline,
                 )
                 server_error_retries += 1
+                state.advance_retry_attempt()
                 if self._metrics is not None:
                     self._metrics.increment(rpc_server_error_retries=1)
                 continue

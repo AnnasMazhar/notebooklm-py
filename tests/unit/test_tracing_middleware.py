@@ -111,7 +111,7 @@ async def test_emits_starting_and_completed_records_on_success(
     expected_response = httpx.Response(status_code=200, content=b"ok")
 
     async def terminal(_request: RpcRequest) -> RpcResponse:
-        return RpcResponse(response=expected_response, context={})
+        return RpcResponse(response=expected_response, state=_request.state)
 
     chain = build_chain([TracingMiddleware()], terminal)
 
@@ -159,7 +159,9 @@ async def test_starting_record_is_emitted_before_next_call(
 
     async def terminal(_request: RpcRequest) -> RpcResponse:
         log_count_during_terminal.append(sum(1 for r in caplog.records if r.name == _TRACE_LOGGER))
-        return RpcResponse(response=httpx.Response(status_code=200, content=b""), context={})
+        return RpcResponse(
+            response=httpx.Response(status_code=200, content=b""), state=_request.state
+        )
 
     chain = build_chain([TracingMiddleware()], terminal)
 
@@ -181,7 +183,9 @@ async def test_rpc_method_absent_does_not_raise(
     """
 
     async def terminal(_request: RpcRequest) -> RpcResponse:
-        return RpcResponse(response=httpx.Response(status_code=204, content=b""), context={})
+        return RpcResponse(
+            response=httpx.Response(status_code=204, content=b""), state=_request.state
+        )
 
     chain = build_chain([TracingMiddleware()], terminal)
 
@@ -208,7 +212,9 @@ async def test_empty_context_does_not_raise(
     """
 
     async def terminal(_request: RpcRequest) -> RpcResponse:
-        return RpcResponse(response=httpx.Response(status_code=200, content=b""), context={})
+        return RpcResponse(
+            response=httpx.Response(status_code=200, content=b""), state=_request.state
+        )
 
     chain = build_chain([TracingMiddleware()], terminal)
 
@@ -237,7 +243,6 @@ async def test_response_passthrough_identity() -> None:
     """
     sentinel_response = RpcResponse(
         response=httpx.Response(status_code=201, content=b"made"),
-        context={"trace_id": "abc-123"},
     )
 
     async def terminal(_request: RpcRequest) -> RpcResponse:
@@ -263,7 +268,9 @@ async def test_request_is_not_mutated() -> None:
 
     async def terminal(request: RpcRequest) -> RpcResponse:
         received_requests.append(request)
-        return RpcResponse(response=httpx.Response(status_code=200, content=b""), context={})
+        return RpcResponse(
+            response=httpx.Response(status_code=200, content=b""), state=request.state
+        )
 
     chain = build_chain([TracingMiddleware()], terminal)
     sent = make_request(context={"log_label": "no-mutation"})

@@ -57,7 +57,6 @@ from typing import TYPE_CHECKING
 
 from .._logging import get_request_id
 from .._types.common import RpcTelemetryEvent
-from .context import RPC_CONTEXT_RPC_METHOD
 from .core import NextCall, RpcRequest, RpcResponse
 
 if TYPE_CHECKING:
@@ -93,7 +92,7 @@ class MetricsMiddleware:
         becomes a pure pass-through with no observable effect. When present,
         the value flows into :attr:`RpcTelemetryEvent.method`.
         """
-        rpc_method = request.context.get(RPC_CONTEXT_RPC_METHOD)
+        rpc_method = request.state.rpc_method
         # ``perf_counter`` is monotonic and clock-jump-safe. The reading
         # happens here (not inside the success/failure branches) so the
         # elapsed accounting is identical across paths and trivially

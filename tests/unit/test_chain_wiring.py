@@ -198,10 +198,7 @@ async def test_chain_terminal_reads_context_keys() -> None:
 
     assert isinstance(result, RpcResponse)
     assert result.response is expected_response
-    # The ``RpcResponse.context`` propagates the same dict the request
-    # carried, so middlewares above the leaf can read additions a deeper
-    # link made. The terminal adapter leaves the dict unchanged.
-    assert result.context is request.context
+    assert result.state is request.state
     assert fake.call_count == 1
     assert fake.calls[0] == {
         "url": "https://fake/ctx",
@@ -418,7 +415,7 @@ def test_build_chain_empty_returns_terminal_unchanged() -> None:
     async def terminal(request: RpcRequest) -> RpcResponse:
         return RpcResponse(
             response=httpx.Response(status_code=200, content=b""),
-            context=request.context,
+            state=request.state,
         )
 
     middlewares: list[Middleware] = []

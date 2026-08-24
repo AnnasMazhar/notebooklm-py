@@ -28,27 +28,30 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Protocol
 
 import httpx
 
 from .._request_types import AuthSnapshot, BuildRequest, materialize_build_request
-from .context import (
-    ALLOWED_RPC_CONTEXT_KEYS,
-    RPC_CONTEXT_AUTH_REFRESHED,
-    RPC_CONTEXT_AUTH_SNAPSHOT,
-    RPC_CONTEXT_BUILD_REQUEST,
-    RPC_CONTEXT_DISABLE_INTERNAL_RETRIES,
-    RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES,
-    RPC_CONTEXT_LOG_LABEL,
-    RPC_CONTEXT_READ_TIMEOUT,
-    RPC_CONTEXT_RPC_METHOD,
-    RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS,
-)
+from .context import RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS, RpcCallState
 
 # ---------------------------------------------------------------------------
 # Chain envelope types.
 # ---------------------------------------------------------------------------
+
+
+class _QueueWaitContext:
+    """Narrow compatibility bridge until the semaphore producer migrates."""
+
+    __slots__ = ("_state",)
+
+    def __init__(self, state: RpcCallState) -> None:
+        self._state = state
+
+    def __setitem__(self, key: str, value: float) -> None:
+        if key != RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS:
+            raise KeyError(f"unsupported request context key: {key!r}")
+        self._state.record_queue_wait(value)
 
 
 @dataclass(frozen=True)
@@ -57,9 +60,8 @@ class RpcRequest:
 
     The chain wraps ``Kernel.post``. Every middleware sees an already-encoded
     HTTP request — encoding lives *above* the chain in :meth:`RpcExecutor.rpc_call`.
-    RPC-level metadata that middlewares need (rpc
-    method id, idempotency, operation variant, log labels, build-request
-    callback, etc.) travels through :attr:`context`.
+    RPC-level metadata that middlewares need travels through the typed
+    :attr:`state` carrier.
 
     Frozen: middlewares that want to alter the request build a new
     :class:`RpcRequest`. Some can use :func:`dataclasses.replace`;
@@ -67,10 +69,9 @@ class RpcRequest:
     :func:`materialize_rpc_request` after refresh so URL, headers, and body
     are rebuilt from the fresh auth snapshot.
 
-    :attr:`context` is mutable by reference (it's a plain :class:`dict`) and
-    is shared across the chain by design — see ADR-0009 §"Per-request
-    behavior". Middlewares that want isolation should make a shallow copy
-    before mutating.
+    :attr:`state` is shared by exact identity across retries. Its immutable
+    configuration and bounded publication methods replace the former open
+    ``dict[str, Any]`` protocol.
     """
 
     url: str
@@ -92,15 +93,18 @@ class RpcRequest:
     body: bytes
     """Encoded ``batchexecute`` body bytes for this attempt."""
 
-    context: dict[str, Any] = field(default_factory=dict)
-    """RPC-level metadata the chain reads.
+    state: RpcCallState = field(default_factory=RpcCallState)
+    """Closed typed state for this logical call."""
 
-    The allowed vocabulary is exported as
-    :data:`ALLOWED_RPC_CONTEXT_KEYS` and mirrored in ADR-0009. Middlewares
-    and the transport terminal use the ``RPC_CONTEXT_*`` constants for
-    lookups and writes; adding a key requires updating this module, ADR-0009,
-    and the lint-style unit test that guards the vocabulary.
-    """
+    @property
+    def context(self) -> _QueueWaitContext:
+        """Temporary queue-wait producer bridge for SemaphoreMiddleware.
+
+        The producer is owned by the adjacent P7 stream. This object accepts
+        only the one historical queue-wait write and cannot carry arbitrary
+        metadata; all consumers use :attr:`state`.
+        """
+        return _QueueWaitContext(self.state)
 
 
 @dataclass(frozen=True)
@@ -108,9 +112,7 @@ class RpcResponse:
     """HTTP-shape response envelope returned by the middleware chain.
 
     Carries the same :class:`httpx.Response` ``Kernel.post`` returns today,
-    plus a propagated ``context`` so middlewares above the chain can read
-    additions a deeper middleware made (e.g. a tracing middleware annotating
-    the attempt with a trace id).
+    plus the exact typed call state shared by its request.
 
     Frozen for the same reason as :class:`RpcRequest`: middlewares that
     transform the response build a new instance via
@@ -126,19 +128,15 @@ class RpcResponse:
     ``.text`` / ``.content`` work synchronously.
     """
 
-    context: dict[str, Any] = field(default_factory=dict)
-    """Propagated metadata. Typically the same dict as
-    :attr:`RpcRequest.context` (so a middleware that wrote an allowed
-    ``RPC_CONTEXT_*`` key can read it back here) plus any
-    response-side additions a middleware made.
-    """
+    state: RpcCallState = field(default_factory=RpcCallState)
+    """The exact state object carried by the corresponding request."""
 
 
 def materialize_rpc_request(
     *,
     build_request: BuildRequest,
     snapshot: AuthSnapshot,
-    context: dict[str, Any],
+    state: RpcCallState,
 ) -> RpcRequest:
     """Build a populated chain envelope from the request callback.
 
@@ -147,15 +145,14 @@ def materialize_rpc_request(
     :class:`RuntimeTransport.terminal` consumes that envelope directly through
     ``Kernel.post``.
 
-    ``context`` is intentionally retained by reference, matching ADR-0009's
-    mutable per-request metadata contract.
+    ``state`` is intentionally retained by identity across every attempt.
     """
     request = materialize_build_request(build_request, snapshot)
     return RpcRequest(
         url=request.url,
         headers=request.headers or {},
         body=request.body,
-        context=context,
+        state=state,
     )
 
 
@@ -260,18 +257,8 @@ def build_chain(
 
 
 __all__ = [
-    "ALLOWED_RPC_CONTEXT_KEYS",
     "Middleware",
     "NextCall",
-    "RPC_CONTEXT_AUTH_REFRESHED",
-    "RPC_CONTEXT_AUTH_SNAPSHOT",
-    "RPC_CONTEXT_BUILD_REQUEST",
-    "RPC_CONTEXT_DISABLE_INTERNAL_RETRIES",
-    "RPC_CONTEXT_DISABLE_READ_TIMEOUT_RETRIES",
-    "RPC_CONTEXT_LOG_LABEL",
-    "RPC_CONTEXT_READ_TIMEOUT",
-    "RPC_CONTEXT_RPC_METHOD",
-    "RPC_CONTEXT_RPC_QUEUE_WAIT_SECONDS",
     "RpcRequest",
     "RpcResponse",
     "build_chain",

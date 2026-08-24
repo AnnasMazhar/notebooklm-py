@@ -71,7 +71,7 @@ async def test_rpc_metrics_event_and_correlation_scope(auth_tokens: AuthTokens) 
         seen_request_ids.append(get_request_id())
         return RpcResponse(
             response=httpx.Response(200, text=")]}'\n[]"),
-            context=request.context,  # type: ignore[attr-defined]
+            state=request.state,  # type: ignore[attr-defined]
         )
 
     core = build_client_shell_for_tests(
@@ -127,7 +127,7 @@ async def test_rpc_decode_error_bumps_drift_counter(auth_tokens: AuthTokens) -> 
     async def fake_terminal(request: object) -> RpcResponse:
         return RpcResponse(
             response=httpx.Response(200, text=")]}'\n[]"),
-            context=request.context,  # type: ignore[attr-defined]
+            state=request.state,  # type: ignore[attr-defined]
         )
 
     core = build_client_shell_for_tests(

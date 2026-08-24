@@ -51,7 +51,6 @@ from __future__ import annotations
 import logging
 import time
 
-from .context import RPC_CONTEXT_LOG_LABEL, RPC_CONTEXT_RPC_METHOD
 from .core import NextCall, RpcRequest, RpcResponse
 
 logger = logging.getLogger("notebooklm.middleware.tracing")
@@ -86,9 +85,8 @@ class TracingMiddleware:
         is populated by ``RpcExecutor._execute_once`` for the RPC path and
         left ``None`` for the chat streaming path.
         """
-        context = request.context
-        rpc_method = context.get(RPC_CONTEXT_RPC_METHOD)
-        log_label = context.get(RPC_CONTEXT_LOG_LABEL)
+        rpc_method = request.state.rpc_method
+        log_label = request.state.log_label
         # ``base_extra`` is the per-attempt structured-logging keyset shared
         # across the three records this middleware emits. Each terminal
         # record (completed / failed) augments it with record-specific

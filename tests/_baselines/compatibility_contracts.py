@@ -464,7 +464,7 @@ async def _logical_rpc_scenario(
             raise _ContractError("contract transport failure")
         return RpcResponse(
             response=httpx.Response(200, text=")]}'\n[]"),
-            context=request.context,
+            state=request.state,
         )
 
     client = build_client_shell_for_tests(
@@ -535,7 +535,7 @@ async def _supplemental_middleware_scenarios() -> dict[str, object]:
             await asyncio.sleep(0)
             if failure:
                 raise _ContractError("contract-error")
-            return RpcResponse(httpx.Response(200), context=current.context)
+            return RpcResponse(httpx.Response(200), state=current.state)
 
         token = set_request_id("contract-request-id")
         try:

@@ -134,7 +134,7 @@ async def test_constructor_terminal_leaf_steers_real_middleware_pipeline() -> No
 
     async def fake_terminal(request: RpcRequest) -> RpcResponse:
         captured.append(request)
-        return RpcResponse(response=_ok_response("fake-terminal"), context=request.context)
+        return RpcResponse(response=_ok_response("fake-terminal"), state=request.state)
 
     core = _make_core(authed_post_terminal=fake_terminal)
     await core.__aenter__()

@@ -21,9 +21,8 @@ terminal maps raw ``Kernel.post`` errors to ``TransportRateLimited`` /
 refresh-then-retry.
 
 The terminal reads ``RpcRequest.url`` / ``headers`` / ``body`` and
-delegates to ``Kernel.post``. Middlewares and the terminal read/write the
-centralized ``RPC_CONTEXT_*`` keys from ``_middleware.context``; the
-allowed vocabulary is mirrored in ADR-0009 §"Per-request behavior".
+delegates to ``Kernel.post``. Middleware collaborators share one typed
+``RpcCallState`` by identity across retries and auth refresh.
 
 The order is pinned at two levels:
 * facade-level by ``tests/unit/test_chain_wiring.py::test_chain_seeded_with_final_adr_009_ordering``

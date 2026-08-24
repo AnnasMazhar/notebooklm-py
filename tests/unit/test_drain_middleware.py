@@ -56,7 +56,7 @@ def _terminal_returning(response: httpx.Response) -> NextCall:
     """
 
     async def terminal(request: RpcRequest) -> RpcResponse:
-        return RpcResponse(response=response, context=request.context)
+        return RpcResponse(response=response, state=request.state)
 
     return terminal
 
@@ -84,7 +84,7 @@ async def test_brackets_next_call_with_begin_finish(
         seen_in_flight.append(tracker._in_flight_posts)
         return RpcResponse(
             response=httpx.Response(status_code=200, content=b"ok"),
-            context=request.context,
+            state=request.state,
         )
 
     middleware = DrainMiddleware(tracker)
@@ -143,7 +143,7 @@ async def test_draining_top_level_request_is_rejected(
         terminal_ran = True
         return RpcResponse(
             response=httpx.Response(status_code=200, content=b""),
-            context={},
+            state=request.state,
         )
 
     middleware = DrainMiddleware(tracker)
@@ -190,7 +190,7 @@ async def test_nested_call_admitted_after_drain_starts(
         terminal_ran = True
         return RpcResponse(
             response=httpx.Response(status_code=200, content=b"ok"),
-            context=request.context,
+            state=request.state,
         )
 
     middleware = DrainMiddleware(tracker)
@@ -251,10 +251,10 @@ async def test_pass_through_does_not_mutate_request(
 
     async def terminal(request: RpcRequest) -> RpcResponse:
         observed["instance"] = request
-        observed["context_keys"] = set(request.context)
+        observed["state"] = request.state
         return RpcResponse(
             response=httpx.Response(200, content=b""),
-            context=request.context,
+            state=request.state,
         )
 
     middleware = DrainMiddleware(tracker)
@@ -269,9 +269,9 @@ async def test_pass_through_does_not_mutate_request(
     await chain(request)
 
     assert observed["instance"] is request
-    assert observed["context_keys"] == set(context_before)
-    # No new keys leaked back into the request context.
-    assert set(request.context) == set(context_before)
+    assert observed["state"] is request.state
+    assert request.state.log_label == "RPC LIST_NOTEBOOKS"
+    assert request.state.rpc_method == "LIST_NOTEBOOKS"
 
 
 @pytest.mark.asyncio

@@ -177,7 +177,7 @@ def _scripted_terminal(behaviors: list[object]) -> NextCall:
         if isinstance(nxt, BaseException):
             raise nxt
         assert isinstance(nxt, httpx.Response)
-        return RpcResponse(response=nxt, context=request.context)
+        return RpcResponse(response=nxt, state=request.state)
 
     return terminal
 

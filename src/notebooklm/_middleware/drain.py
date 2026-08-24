@@ -46,7 +46,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .context import RPC_CONTEXT_LOG_LABEL
 from .core import NextCall, RpcRequest, RpcResponse
 
 if TYPE_CHECKING:
@@ -93,7 +92,7 @@ class DrainMiddleware:
         ``_web.chat_transport.chat_aware_authed_post`` both let drain admission errors
         propagate without catching.
         """
-        log_label = request.context.get(RPC_CONTEXT_LOG_LABEL, "<unknown-chain-call>")
+        log_label = request.state.log_label or "<unknown-chain-call>"
         token = await self._drain_tracker.begin_transport_post(log_label)
         try:
             return await next_call(request)
