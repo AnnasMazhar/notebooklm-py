@@ -396,24 +396,8 @@ def register(mcp: Any) -> None:
         sources: list[str] | str | None = None,
         confirm: bool = False,
     ) -> dict[str, Any]:
-        """Delete one or many sources (irreversible). Accepts a notebook/source name or ID.
-
-        Two-step confirmation: with ``confirm=False`` (default) it returns a
-        ``needs_confirmation`` preview of every resolved source without deleting;
-        call again with ``confirm=True`` to perform the deletes. Pass EITHER
-        ``source`` (a single ref) OR ``sources`` (a subset; list or comma/JSON
-        string) — never both. Without either, deletes the whole notebook's
-        sources (matches the source_wait "all sources" path).
-
-        On ``confirm=True``, returns a structured aggregate so a partial failure
-        does not discard successes — every resolved id lands in exactly one of
-        ``deleted`` / ``not_found`` / ``failed`` (``not_found`` is a resolution
-        miss, ``failed`` is a delete RPC exception). Per the CLAUDE.md
-        rate-limiting pitfall, multiple deletes fan out with a small inter-call
-        delay so the backend does not throttle the batch.
-
-        Two-step confirmation mirrors :func:`source_wait`: the second call
-        (``confirm=True``) is the one that mutates.
+        """Delete sources. ``source`` (one) XOR ``sources`` (bulk); omit for
+        all. confirm=False previews; True deletes, returns buckets.
         """
         client = get_client(ctx)
         with mcp_errors():
