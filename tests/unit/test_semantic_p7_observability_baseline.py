@@ -13,6 +13,11 @@ Regenerate intentionally with::
 
 CI never passes ``--update-baselines``; it only compares the derived matrix to
 the committed fixture.
+
+P8 deliberately removes the auth-snapshot lock from ordinary RPC request
+materialization: those calls consume an immutable provider generation instead.
+Their lock-wait totals are therefore exactly zero. Auth refresh still records
+its coordinator lock, and Chat still records its request-id lock.
 """
 
 from __future__ import annotations
@@ -362,6 +367,21 @@ async def test_semantic_web_observability_matches_pre_p7_baseline(
         == 1
     )
     assert scenarios["chat_stream_success"]["events"] == []
+    for scenario in (
+        "successful_read",
+        "successful_mutation",
+        "rate_limit_retry_then_success",
+        "server_retry_then_success",
+        "terminal_transport_error",
+        "decode_error_after_transport_success",
+    ):
+        metrics = scenarios[scenario]["metrics_snapshot"]
+        assert metrics["lock_wait_seconds_total"] == "zero-float"
+        assert metrics["lock_wait_seconds_max"] == "zero-float"
+    for scenario in ("auth_refresh_then_success", "chat_stream_success"):
+        metrics = scenarios[scenario]["metrics_snapshot"]
+        assert metrics["lock_wait_seconds_total"] == "positive-float"
+        assert metrics["lock_wait_seconds_max"] == "positive-float"
 
     if update_baselines:
         _BASELINE_PATH.write_text(

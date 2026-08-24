@@ -88,10 +88,14 @@ def test_atomic_runtime_is_complete_before_backend_publication() -> None:
 
     assert backend._runtime is client.notebooks._legacy_rpc
     assert backend._chat_transport is backend._runtime._transport
-    assert backend._rpc_semaphore is not None
-    assert backend._rpc_semaphore.max_concurrent_rpcs == 4
+    # P8 moved the lifecycle-opened semaphore behind the credential provider;
+    # the semantic backend consumes the already-wired middleware chain and
+    # must not retain a second owner.
+    assert client._provider._rpc_semaphore.max_concurrent_rpcs == 4
+    assert not hasattr(backend, "_rpc_semaphore")
     assert backend._metrics is not None
-    assert backend._lifecycle is not None
+    assert client._provider._lifecycle is not None
+    assert not hasattr(backend, "_lifecycle")
     assert not hasattr(client, "_composed")
     assert not hasattr(client, "_collaborators")
     assert not hasattr(client, "_rpc_executor")
@@ -471,19 +475,24 @@ async def test_auth_refresh_coordinator_single_flight() -> None:
     assert refresh_count == 1
 
 
-def test_adr0016_auth_instance_invariant_aliased_across_live_graph() -> None:
-    """client.auth is aliased across client.auth, uploader, and persistence."""
+def test_adr0016_auth_instance_invariant_is_provider_owned() -> None:
+    """The provider owns the auth alias; upload receives only its generation port."""
     auth = _make_auth()
     client = NotebookLMClient(auth)
 
     assert client.auth is auth
     assert client._provider.auth is auth
-    assert client._source_uploader._auth is auth
+    assert client._source_uploader._auth is None
+    generation_provider = client._source_uploader._generation_provider
+    assert generation_provider is not None
+    assert getattr(generation_provider, "__self__", None) is client._provider
+    assert getattr(generation_provider, "__func__", None) is type(client._provider).generation
 
-    # In-place update is reflected across all alias holders
+    # ADR-0016's in-place identity remains exact at the public/provider owner;
+    # the uploader cannot observe the mutable AuthTokens capability directly.
     auth.csrf_token = "new-csrf-token"
     assert client.auth.csrf_token == "new-csrf-token"
-    assert client._source_uploader._auth.csrf_token == "new-csrf-token"
+    assert client._provider.auth.csrf_token == "new-csrf-token"
 
 
 # -----------------------------------------------------------------------------
