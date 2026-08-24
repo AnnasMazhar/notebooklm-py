@@ -77,7 +77,7 @@ src/notebooklm/
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
 │                      Runtime Layer                          │
-│          RpcExecutor, RuntimeTransport, Kernel, lifecycle    │
+│ WebRpcBackend, WebExecutionRuntime, transport, lifecycle    │
 └───────────────────────────┬─────────────────────────────────┘
                             │
 ┌───────────────────────────▼─────────────────────────────────┐
@@ -93,30 +93,32 @@ src/notebooklm/
 | **Adapters** | `cli/`, `mcp/`, `server/` | User commands/tools/routes, transport-specific input/output, auth envelopes |
 | **App core** | `_app/*.py` | Transport-neutral workflows reused by adapters |
 | **Client** | `client.py`, `_*.py` | High-level Python API, returns typed dataclasses |
-| **Runtime** | `client.py`, `_client_composed.py`, `_runtime/init.py`, `_kernel.py`, runtime collaborators | `NotebookLMClient` composition root plus seam-module helpers (HTTP client lifecycle, RPC dispatch, metrics, drain bookkeeping, request-id counter, auth refresh, conversation cache, polling registry, cookie persistence) |
+| **Runtime** | `_client_assembly.py`, `_web/backend.py`, `_web/runtime.py`, `_runtime/*.py`, `_kernel.py` | Atomic construction plus backend-owned HTTP lifecycle, RPC dispatch, metrics, drain, request-id, and auth-refresh leaves |
 | **RPC** | `rpc/*.py` | Protocol encoding/decoding, method IDs |
 
 #### Runtime seam modules
 
-The client runtime is split across `NotebookLMClient` (composition root),
-`ClientComposed` (holder), `_runtime/init.py` (construction helpers),
-`_kernel.py` (HTTP client owner), and single-responsibility collaborator
-modules. (The legacy `_core.py` compatibility shim was deleted in v0.5.0;
-callers import directly from the canonical modules.) Each helper exposes
-a narrow Protocol surface so it can be unit-tested against a stub:
+`_client_assembly.py` is the single composition root. `_runtime/init.py`
+atomically builds a frozen construction receipt, which assembly immediately
+unpacks into `WebRpcBackend`; neither the client nor backend retains that
+receipt. The backend owns `WebExecutionRuntime` and the lifecycle, transport,
+auth-refresh, metrics, drain, request-id, and cookie-persistence leaves. Each
+helper exposes a narrow Protocol surface so it can be tested against a stub:
 
 | Module | Class | Responsibility |
 |---|---|---|
-| `_client_composed.py` | `ClientComposed` | Client-owned holder for transport, executor, chain host, middleware metadata, and session collaborator bundle. |
-| `_runtime/init.py` | `RuntimeCollaborators` helpers | Validates constructor args, builds collaborators, wires middleware, and binds `ClientComposed`. |
+| `_client_assembly.py` | composition root | Validates public options, consumes `ClientInternals`, and publishes one complete `WebRpcBackend`. |
+| `_web/backend.py` | `WebRpcBackend` | Owns semantic dispatch plus the concrete runtime leaves used by public lifecycle, raw-RPC, auth, account, and metrics delegates. |
+| `_web/runtime.py` | `WebExecutionRuntime` | Sole batchexecute encode/dispatch/decode authority. |
+| `_runtime/init.py` | `ClientInternals` construction receipt | Builds leaves and wires the ordered middleware chain atomically before backend publication. |
 | `_client_metrics.py` | `ClientMetrics` | `ClientMetricsSnapshot` counters, queue-wait recorders, `on_rpc_event` async callback. |
 | `_transport_drain.py` | `TransportDrainTracker` | In-flight transport counters, `_TransportOperationToken`, lazy `asyncio.Condition` powering `client.drain(...)`. |
 | `_reqid_counter.py` | `ReqidCounter` | Monotonic `_reqid` counter for chat backend (baseline 100000, step 100000). |
 | `_runtime/auth.py` | `AuthRefreshCoordinator` | Refresh-task lifecycle, refresh lock, `AuthSnapshot` rotation. |
 | `_runtime/contracts.py` | Runtime Protocols | Shared capability Protocols: `Kernel`, `RpcCaller`, and `LoopGuard`. Single-consumer capabilities stay local to their owner modules. |
 | `_runtime/lifecycle.py` | `ClientLifecycle` | Loop-affinity guard, `aclose` plumbing, keepalive task wiring. |
-| `_runtime/transport.py` | `RuntimeTransport` | Authenticated transport leg used by `RpcExecutor` and the middleware chain terminal. |
-| `_rpc_executor.py` | `RpcExecutor` | RPC dispatch executor with direct collaborator dependencies. |
+| `_runtime/transport.py` | `RuntimeTransport` | Authenticated transport leg used by `WebExecutionRuntime` and the middleware chain terminal. |
+| `_rpc_executor.py` | `RpcExecutor` | Behaviorless compatibility subclass of `WebExecutionRuntime`. |
 | `_request_types.py` | `AuthSnapshot`, `BuildRequest`, request materialization | Shared request construction Interface. |
 | `_transport_errors.py` | transport exceptions, `parse_retry_after`, `raise_mapped_post_error` | Terminal `Kernel.post` error mapping for middleware retry/auth behavior. |
 | `_streaming_post.py` | `stream_post_with_size_cap` | Low-level POST streaming and response-size guard. |

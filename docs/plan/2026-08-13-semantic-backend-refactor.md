@@ -425,7 +425,7 @@ gantt
 ```
 
 Every phase before P7 is net-additive; the plan concedes this. P7 is the only phase whose deliverable
-is deletion — `_client_composed.py` (165) + `_client_assembly.py` (420) + `_client_seams.py` (74) +
+is deletion — the former ClientComposed module (165) + `_client_assembly.py` (420) + `_client_seams.py` (74) +
 `_middleware/` (2,206) = **2,865 LOC**. Sequenced last, the effort pays roughly 40 PRs of additive
 cost before collecting any simplification, and a stall anywhere in P1-P6 leaves the repository
 strictly worse off than not starting. See the open sequencing decision above.
@@ -765,7 +765,7 @@ below and resolved it before P1: retain the written phase order, approve P3 with
 constraints, and approve P8 after P7.
 
 **The case for running P7 first, standalone.** P7 is the only phase whose deliverable is deletion:
-`_client_composed.py` (165) + `_client_assembly.py` (420) + `_client_seams.py` (74) + `_middleware/`
+the former ClientComposed module (165) + `_client_assembly.py` (420) + `_client_seams.py` (74) + `_middleware/`
 (2,206) = **2,865 LOC** of collapse. Every other phase is net-additive, which this plan concedes.
 Sequenced last, the effort pays roughly 40 PRs of additive cost before collecting any simplification
 — and if it stalls anywhere in P1-P6, the repository ends **strictly worse**: all of the translation,

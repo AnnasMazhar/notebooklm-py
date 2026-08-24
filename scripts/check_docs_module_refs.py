@@ -87,10 +87,9 @@ _ALLOWLIST: dict[str, str] = {
     # `_core.py` was the runtime compatibility shim deleted in v0.5.0. These live
     # docs intentionally name it to explain why `CORE_LOGGER_NAME` still reads
     # "notebooklm._core" (a logging compatibility contract), NOT to point at a
-    # live module. See docs/development.md "Logger namespace compatibility".
+    # live module; the remaining docs explain the logger-namespace compatibility.
     "docs/architecture.md:_core.py": "historical: deleted-in-v0.5.0 compat shim, named to explain CORE_LOGGER_NAME",
     "docs/configuration.md:_core.py": "historical: deleted-in-v0.5.0 compat shim, named to explain CORE_LOGGER_NAME",
-    "docs/development.md:_core.py": "historical: deleted-in-v0.5.0 compat shim, named to explain CORE_LOGGER_NAME",
     # `_newfeature.py` is a placeholder in the "adding a new API class" how-to
     # ("Create `_newfeature.py` ..."), not a real module reference.
     "docs/development.md:_newfeature.py": "placeholder: example module name in the add-an-API-class how-to",
