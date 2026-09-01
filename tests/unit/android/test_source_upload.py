@@ -486,6 +486,14 @@ async def test_waiting_branches_use_one_exact_read_then_optional_no_readback_tit
 @pytest.mark.asyncio
 async def test_error_or_wait_timeout_never_dispatches_title_mutation(tmp_path: Path) -> None:
     path, _ = _write_pdf(tmp_path)
+    # The ERROR leg has to reach its first poll: ``wait_until_registered`` checks
+    # the deadline before looking, and an expiry with nothing observed raises
+    # SourceTimeoutError (no status, no error streak) rather than the terminal
+    # SourceProcessingError this asserts. ``time.monotonic()`` advances in
+    # 15.6 ms steps on Windows before 3.13 (``GetTickCount64``), so a 10 ms
+    # budget can be gone between ``RuntimeDeadline.start()`` and that first
+    # check. Stay above one tick.
+    wait_timeout = 0.05
     for response, expected in [
         (_project(_SETTINGS.SOURCE_STATUS_ERROR), SourceProcessingError),
         (_project(_SETTINGS.SOURCE_STATUS_TENTATIVE), SourceTimeoutError),
@@ -498,7 +506,7 @@ async def test_error_or_wait_timeout_never_dispatches_title_mutation(tmp_path: P
                 NOTEBOOK_ID,
                 path,
                 wait=False,
-                wait_timeout=0.01,
+                wait_timeout=wait_timeout,
                 title="Custom",
             )
         assert MUTATE_SOURCE_METHOD not in [call[0] for call in session.calls]
