@@ -92,6 +92,9 @@ MUTATING_SKIP_LIST: frozenset[str] = frozenset(
         # history") — destructive write op, needs a real conversation to
         # delete and is exercised via the e2e suite, not the canary.
         "DELETE_CONVERSATION",
+        # Synchronous discovery: quota-bearing and records a completed job on the
+        # notebook; probed in full mode only, right after START_FAST_RESEARCH.
+        "DISCOVER_SOURCES",
         # Kicks off a fast-research task on the server — long-running write
         # op. Tested via --full setup to verify the RPC ID still echoes.
         "START_FAST_RESEARCH",

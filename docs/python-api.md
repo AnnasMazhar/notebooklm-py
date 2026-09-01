@@ -1801,6 +1801,7 @@ if result.references:
 | Method | Parameters | Returns | Description |
 |--------|------------|---------|-------------|
 | `start(notebook_id, query, source, mode)` | `str, str, str="web", str="fast"` | `ResearchStart` | Start research (mode: "fast" or "deep"); raises `ValidationError` on invalid source/mode and `DecodingError` if no task is created |
+| `discover(notebook_id, query, *, mode="default")` | `str, str, str` | `ResearchTask` | **Synchronous** web discovery in one blocking call (~8 s): returns a completed task whose `sources` are the ranked results and `summary` the backend's overview. `mode` is `"default"`, `"raw"`, `"curious"` or `"curious_raw"` (the curious modes pick a topic; `query` is dropped and sent empty). The backend also records the call as a completed run, so `task_id` works with `import_sources` / `cancel`. Raises `ValidationError` on an unknown mode or an empty query outside the curious modes. |
 | `poll(notebook_id, task_id=None)` | `str, str \| None = None` | `ResearchTask` | Check research status. If multiple tasks are in flight and `task_id` is omitted, raises `AmbiguousResearchTaskError` |
 | `wait_for_completion(notebook_id, task_id=None, *, timeout=1800, initial_interval=5)` | `str, str \| None, float, float` | `ResearchTask` | Wait for research to complete, pinning the discovered task ID between polls. Raises `ResearchTimeoutError` (a `WaitTimeoutError`/`TimeoutError`) and `AmbiguousResearchTaskError` when unpinned polling is ambiguous. |
 | `import_sources(notebook_id, task_id, sources)` | `str, str, Sequence[dict[str, Any] \| ResearchSource]` | `list[dict]` | Import findings. Accepts plain dicts **or** the typed `ResearchSource` objects from `poll().sources`. |
@@ -3534,17 +3535,18 @@ class DiscoveryMode(Enum):
     """How a research run searched for sources — `ResearchTask.discovery_mode`."""
 
     UNKNOWN = -1  # Client sentinel: slot populated with a code we cannot map
-    DEFAULT_LLM_SEARCH = 1  # Sent + observed for mode="fast"
-    RAW_SEARCH = 2  # Never sent by this client
-    CURIOUS_SEARCH = 3  # Never sent by this client
-    CURIOUS_RAW_SEARCH = 4  # Never sent by this client
-    DEEP_RESEARCH = 5  # Sent + observed for mode="deep"
-    LITE_LLM_SEARCH = 6  # Never sent by this client
+    DEFAULT_LLM_SEARCH = 1  # start(mode="fast") and discover(mode="default")
+    RAW_SEARCH = 2  # discover(mode="raw")
+    CURIOUS_SEARCH = 3  # discover(mode="curious")
+    CURIOUS_RAW_SEARCH = 4  # discover(mode="curious_raw")
+    DEEP_RESEARCH = 5  # start(mode="deep")
+    LITE_LLM_SEARCH = 6  # Never sent by this client (faults server-side)
 
 
-# Same UNSPECIFIED(0) treatment as DriveSourceStatus above. Only 1 and 5 have been
-# observed — they are the two this client sends, and the poll echoes them back, so
-# the mode a run is executing under is confirmable rather than merely remembered.
+# Same UNSPECIFIED(0) treatment as DriveSourceStatus above. `research.start` sends
+# 1 and 5 and the poll echoes them back, so the mode a run is executing under is
+# confirmable rather than merely remembered; `research.discover` sends 1–4 and
+# echoes the same value on its returned task.
 # `notebooklm.types.discovery_mode_to_str` maps a member to its lower-snake label.
 ```
 
