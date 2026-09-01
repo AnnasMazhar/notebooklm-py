@@ -42,6 +42,11 @@ class SourceType(str, Enum):
     POWERPOINT = "powerpoint"
     CSV = "csv"
     EPUB = "epub"
+    EXCEL = "excel"
+    GEMINI_CHAT = "gemini_chat"
+    GMAIL = "gmail"
+    AI_MODE_CHAT = "ai_mode_chat"
+    EXPERT_INTELLIGENCE = "expert_intelligence"
     IMAGE = "image"
     MEDIA = "media"
     UNKNOWN = "unknown"
@@ -50,6 +55,28 @@ class SourceType(str, Enum):
 _warned_source_types: set[int] = set()
 
 
+#: Backend type code -> public :class:`SourceType`.
+#:
+#: Aligned against the ``OriginalSourceContentType`` enum recovered from the
+#: Android binary (``docs/android/enums.txt``, and the checked-in
+#: ``read.proto``), which agrees with this map on every code. Two evidence
+#: levels, marked inline on the entries themselves:
+#:
+#: * **live-observed** — a source of that type was created and read back. This
+#:   is every code except the four below, and includes ``18``: an Android
+#:   ``AddSources`` carrying ``CONTENT_TYPE_GEMINI_CHAT`` reproducibly returns a
+#:   source with it.
+#: * **schema-only** — ``12``, ``15``, ``19`` and ``20``. Each is defined by the
+#:   recovered enum, and no route this client can reach produces one: ``.xlsx``
+#:   is refused at the Web upload ``start`` with HTTP 400, a spreadsheet
+#:   imported from Drive comes back as ``14``, and Gmail, AI Mode chat and
+#:   Expert Intelligence imports are not exposed on either front door.
+#:
+#: The schema-only four are mapped anyway so a server that does emit one reads
+#: as itself instead of ``UNKNOWN``: a label on a code nothing sends costs
+#: nothing, while leaving one unmapped raises ``UnknownTypeWarning`` and sends
+#: the next reader hunting — which is exactly how ``18`` was found. Promote an
+#: entry's marker once one is observed.
 _SOURCE_TYPE_CODE_MAP: dict[int, SourceType] = {
     0: SourceType.UNKNOWN,
     1: SourceType.GOOGLE_DOCS,
@@ -63,10 +90,15 @@ _SOURCE_TYPE_CODE_MAP: dict[int, SourceType] = {
     9: SourceType.YOUTUBE,
     10: SourceType.MEDIA,
     11: SourceType.DOCX,
+    12: SourceType.EXCEL,  # schema-only; no reachable producer
     13: SourceType.IMAGE,
     14: SourceType.GOOGLE_DRIVE,
+    15: SourceType.GMAIL,  # schema-only; no reachable producer
     16: SourceType.CSV,
     17: SourceType.EPUB,
+    18: SourceType.GEMINI_CHAT,  # live: Android AddSources CONTENT_TYPE_GEMINI_CHAT
+    19: SourceType.AI_MODE_CHAT,  # schema-only; no reachable producer
+    20: SourceType.EXPERT_INTELLIGENCE,  # schema-only; no reachable producer
 }
 
 
@@ -172,6 +204,11 @@ _SOURCE_TYPE_COMPAT_MAP: dict[SourceType, str] = {
     SourceType.POWERPOINT: "text_file",
     SourceType.CSV: "text",
     SourceType.EPUB: "text_file",
+    SourceType.EXCEL: "text_file",
+    SourceType.GEMINI_CHAT: "text",
+    SourceType.GMAIL: "text",
+    SourceType.AI_MODE_CHAT: "text",
+    SourceType.EXPERT_INTELLIGENCE: "text",
     SourceType.IMAGE: "text",
     SourceType.MEDIA: "text",
     SourceType.UNKNOWN: "text",
