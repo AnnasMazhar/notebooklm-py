@@ -19,7 +19,6 @@ This module imports NO ``click`` / ``rich`` / ``cli``.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -49,7 +48,7 @@ from .._confirm import DESTRUCTIVE, READ_ONLY, needs_confirmation
 from .._context import get_client, get_file_transfer
 from .._errors import mcp_errors, tool_error_payload
 from .._paginate import DEFAULT_LIMIT, paginate
-from .._resolve import resolve_notebook, resolve_source, resolve_sources
+from .._resolve import partition_source_refs, resolve_notebook, resolve_source, resolve_sources
 from ._content_sanity import _annotate_thin_warnings
 from ._fileupload import _add_bytes, _add_one, _broker_upload, _decode_upload_b64
 from ._passthrough import passthrough_child_id
@@ -69,13 +68,6 @@ _DRIVE_MIME_CHOICES = ("google-doc", "google-slides", "google-sheets", "pdf")
 
 #: The choices as a clean, comma-separated quoted string for user-facing errors.
 _DRIVE_MIME_CHOICES_STR = ", ".join(f"'{choice}'" for choice in _DRIVE_MIME_CHOICES)
-
-
-#: Inter-call sleep for source_delete bulk fan-out (CLAUDE.md rate-limiting
-#: pitfall: bulk delete RPCs share a per-token throttle). 250 ms keeps a
-#: 50-source delete well under the published QPS while not stretching a
-#: 2-source delete into an obvious "delay loop"; the last id skips it.
-_BULK_DELETE_INTER_CALL_DELAY_S = 0.25
 
 
 def _validate_drive_mime(source_type: str, mime_type: str | None) -> None:
@@ -396,8 +388,8 @@ def register(mcp: Any) -> None:
         sources: list[str] | str | None = None,
         confirm: bool = False,
     ) -> dict[str, Any]:
-        """Delete sources. ``source`` (one) XOR ``sources`` (bulk); omit for
-        all. confirm=False previews; True deletes, returns buckets.
+        """Delete sources. ``source`` XOR ``sources``. Preview: omit both.
+        Confirm: pass those previewed ids.
         """
         client = get_client(ctx)
         with mcp_errors():
@@ -421,6 +413,12 @@ def register(mcp: Any) -> None:
                     f"'sources' must contain at most {wait_core.MAX_WAIT_SOURCE_IDS} refs; "
                     f"got {len(coerced)}. Delete a smaller subset."
                 )
+            if confirm and source is None and coerced is None:
+                raise ValidationError(
+                    "confirm=True requires the previewed source ids as 'sources' "
+                    "(or a single 'source'); omitting both would re-list and can "
+                    "delete sources that were never previewed"
+                )
 
             # Fast-path: single-id ``source=`` keeps the LEGACY wire shape
             # (``status`` + ``source_id`` + ``notebook_id``) so existing
@@ -443,58 +441,31 @@ def register(mcp: Any) -> None:
                 return {"status": "deleted", "notebook_id": nb_id, "source_id": src_id}
 
             nb_id = await resolve_notebook(client, notebook)
+            snapshot = await client.sources.list(nb_id)
 
-            # Bulk path: ``coerced`` (explicit subset) → resolve_sources
-            # (which dedupes by resolved id); no arg → list every source.
-            # ``source=`` was short-circuited above.
-            if coerced is not None:
-                src_ids = list(dict.fromkeys(await resolve_sources(client, nb_id, coerced)))
+            if coerced is None:
+                src_ids = [s.id for s in snapshot]
+                not_found: list[dict[str, str]] = []
             else:
-                src_ids = [s.id for s in await client.sources.list(nb_id)]
+                src_ids, not_found = partition_source_refs(coerced, snapshot)
 
             if not confirm:
-                # Preview: title + id for every resolved source so the agent
-                # can decide whether to call again with ``confirm=True``.
-                # The list was already done by ``resolve_sources`` (subset /
-                # non-UUID) or by the all-sources branch, so the title lookup
-                # is local against that snapshot — no extra RPC.
-                sources_snapshot = await client.sources.list(nb_id)
                 preview_items = [
-                    {
-                        "source_id": sid,
-                        "title": title_for_id(sources_snapshot, sid),
-                    }
-                    for sid in src_ids
+                    {"source_id": sid, "title": title_for_id(snapshot, sid)} for sid in src_ids
                 ]
-                return needs_confirmation(
-                    {
-                        "action": "delete_sources",
-                        "notebook_id": nb_id,
-                        "count": len(preview_items),
-                        "sources": preview_items,
-                    }
-                )
+                preview: dict[str, Any] = {
+                    "action": "delete_sources",
+                    "notebook_id": nb_id,
+                    "count": len(preview_items),
+                    "sources": preview_items,
+                }
+                if not_found:
+                    preview["not_found"] = not_found
+                return needs_confirmation(preview)
 
-            # Confirm path: there is no batch DELETE RPC on the backend, so
-            # fan out over the single-id ``client.sources.delete`` with a
-            # small inter-call delay (CLAUDE.md rate-limiting pitfall). Each
-            # id lands in exactly one of the three buckets so partial
-            # failures do not discard successes.
-            deleted: list[dict[str, Any]] = []
-            not_found: list[dict[str, Any]] = []
-            failed: list[dict[str, Any]] = []
-            for i, sid in enumerate(src_ids):
-                try:
-                    await client.sources.delete(nb_id, sid)
-                    deleted.append({"source_id": sid})
-                except SourceNotFoundError as e:
-                    not_found.append({"source_id": sid, "error": str(e)})
-                except Exception as e:  # RPCError, NetworkError, etc.
-                    failed.append({"source_id": sid, "error": str(e)})
-                # Inter-call delay: skip on the LAST id (nothing left to
-                # throttle against).
-                if i < len(src_ids) - 1:
-                    await asyncio.sleep(_BULK_DELETE_INTER_CALL_DELAY_S)
+            if src_ids:
+                await client.sources.delete_many(nb_id, src_ids)
+            deleted = [{"source_id": sid} for sid in src_ids]
             return {
                 "status": "deleted",
                 "notebook_id": nb_id,
@@ -502,9 +473,7 @@ def register(mcp: Any) -> None:
                 "deleted_count": len(deleted),
                 "not_found": not_found,
                 "not_found_count": len(not_found),
-                "failed": failed,
-                "failed_count": len(failed),
-                "total_count": len(src_ids),
+                "total_count": len(deleted) + len(not_found),
             }
 
     @mcp.tool(annotations=READ_ONLY)
