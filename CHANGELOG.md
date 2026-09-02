@@ -75,8 +75,9 @@ change without notice.
   `SourceType.GOOGLE_DRIVE` instead of `GOOGLE_SPREADSHEET`. Native Google
   Sheets continue to report `SourceType.GOOGLE_SPREADSHEET` through code `7`
   ([#2281]).
-- The `cookies` extra now uses the maintained `rookie-cookies` package,
-  restoring browser-cookie import support on Python 3.13 and newer ([#2162]).
+- The `cookies` extra now uses the maintained `rookie-cookies` package instead
+  of `rookiepy`. This supports Python 3.13+ as well as extracting cookies on
+  Windows for Chrome, Edge, Brave, and other Chromium-based browsers ([#2162]).
 
 ### Fixed
 
