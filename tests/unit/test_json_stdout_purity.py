@@ -548,6 +548,17 @@ def _customize_notebook_create(client: MagicMock) -> None:
     )
 
 
+def _customize_notebook_copy(client: MagicMock) -> None:
+    client.notebooks.copy = AsyncMock(
+        return_value=Notebook(
+            id="copyxyz123abc456def789",
+            title="My Notebook Copy",
+            created_at=datetime(2024, 1, 2),
+            is_owner=True,
+        )
+    )
+
+
 # ---------------------------------------------------------------------------
 # Filesystem-driven --json commands (doctor, profile list).
 # These cases bypass NotebookLMClient entirely and read ~/.notebooklm/...,
@@ -899,7 +910,7 @@ JSON_COMMANDS: list[tuple[str, list[str], object]] = [
         ["artifact", "choices", "-n", "abc123def456ghi789jkl", "--json"],
         _customize_artifact_choices,
     ),
-    # doctor / profile / notebook-create coverage (meta-audit G9 + I7 + I9):
+    # doctor / profile / notebook create/copy coverage (meta-audit G9 + I7 + I9):
     # `doctor` and `profile list` read NOTEBOOKLM_HOME directly and don't
     # build a NotebookLMClient — the parametrized test dispatches on these
     # case_ids and uses the ``_setup_fs_<case>`` helpers above instead of
@@ -908,6 +919,11 @@ JSON_COMMANDS: list[tuple[str, list[str], object]] = [
     ("doctor", ["doctor", "--json"], None),
     ("profile_list", ["profile", "list", "--json"], None),
     ("notebook_create", ["create", "My Notebook", "--json"], _customize_notebook_create),
+    (
+        "notebook_copy",
+        ["copy", "My Notebook Copy", "-n", "abc123def456ghi789jkl", "--json"],
+        _customize_notebook_copy,
+    ),
 ]
 
 
