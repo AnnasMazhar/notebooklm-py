@@ -75,6 +75,9 @@ change without notice.
 
 ### Fixed
 
+- Credential redaction now recognizes current `AQ.`-prefixed Google
+  authorization keys in runtime logs, exception previews, and cassette
+  fixtures, alongside legacy `AIza` keys ([#2254]).
 - The RPC health canary no longer treats an account-dependent omission of the
   dedicated Cinematic row from Studio customization choices as removal of
   `VideoFormat.CINEMATIC`. Wire format 3 remains supported, while unknown codes
@@ -99,6 +102,7 @@ change without notice.
 
 [#2162]: https://github.com/teng-lin/notebooklm-py/pull/2162
 [#2252]: https://github.com/teng-lin/notebooklm-py/pull/2252
+[#2254]: https://github.com/teng-lin/notebooklm-py/pull/2254
 [#2260]: https://github.com/teng-lin/notebooklm-py/pull/2260
 [#2268]: https://github.com/teng-lin/notebooklm-py/pull/2268
 [#2269]: https://github.com/teng-lin/notebooklm-py/pull/2269
