@@ -42,6 +42,7 @@
   "ConversationTurnKey",
   "NextStepSuggestion",
   "ChatReference",
+  "ChatSessionStatus",
   "BlockKind",
   "BlockStyle",
   "DocumentAnnotation",

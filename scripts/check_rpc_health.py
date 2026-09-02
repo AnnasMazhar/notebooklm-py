@@ -675,6 +675,11 @@ def get_test_params(method: RPCMethod, notebook_id: str | None) -> list[Any] | N
         # Use "en" as safe language code
         return [[[None, [[None, None, None, None, ["en"]]]]]]
 
+    # An unknown chat session is safe and does not require a notebook ID. Keep
+    # this above the notebook guard so quick mode still probes the read-only RPC.
+    if method == RPCMethod.GET_CHAT_SESSION_STATUS:
+        return [None, "placeholder_conv_id"]
+
     # Methods that require a notebook ID
     if not notebook_id:
         return None

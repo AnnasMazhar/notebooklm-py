@@ -34,7 +34,7 @@ consolidated document rather than encoded in filenames.
 | [`proto-evidence-ledger.md`](proto-evidence-ledger.md) | exact/local compile closure, replay policy, hashes, and admission decisions |
 | [`schema.proto`](schema.proto) | generated 323-message / 868-field Dart-AOT recovery parsed by CI |
 | [`enums.txt`](enums.txt) | generated 104-block (94 enum names) integer inventory parsed by CI |
-| [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json) | sixteen Web-derived signatures with conventional request/response type names |
+| [`grpc-service-signature-inferences.json`](grpc-service-signature-inferences.json) | seventeen Web-derived signatures with conventional request/response type names |
 | [`grpc-service-signature-exceptions.json`](grpc-service-signature-exceptions.json) | empty implemented-path exception manifest |
 | [`grpc-runtime-parser-overrides.json`](grpc-runtime-parser-overrides.json) | exact paths intentionally decoded through local live-field overlays |
 
@@ -52,6 +52,7 @@ consolidated document rather than encoded in filenames.
 | [`source-search-evidence.md`](source-search-evidence.md) | live Web and Android wire evidence for `RetrieveRelevantChunks` / `sources.search` |
 | [`auth-research.md`](auth-research.md) | Android OAuth identity, scopes, and bearer validation |
 | [`blutter-grpc-signature-evidence.md`](blutter-grpc-signature-evidence.md) | exact generated-client bindings for formerly unresolved response FQNs |
+| [`chat-session-control-evidence.md`](chat-session-control-evidence.md) | live Web/Android session-status and cancellation semantics for #2303 |
 
 ### Capture and tooling
 
@@ -112,11 +113,11 @@ this regeneration is not yet captured as a patch.
 The reduced compile inputs used by the internal Android adapters live under
 `src/notebooklm/_android/proto_src/`. Regenerate their checked-in Python modules and the full
 descriptor fixture with `python scripts/regenerate_android_protos.py --write`; use `--check` in CI.
-The cumulative `orchestration_service.proto` owns the 55-method orchestration service;
+The cumulative `orchestration_service.proto` owns the 57-method orchestration service;
 `sharing.proto` owns the separately proven two-method exact sharing service, and individual
-orchestration message overlays remain service-free. Sixteen orchestration signatures are explicitly
+orchestration message overlays remain service-free. Seventeen orchestration signatures are explicitly
 marked as web-derived conventional-name inferences; all other generated signatures are exact.
-The 57 generated methods exhaustively equal the 57 implemented adapter paths, and the signature
+The 59 generated methods exhaustively equal the 59 implemented adapter paths, and the signature
 exception manifest is empty. Generated descriptors, adapter paths, inference provenance, and the
 hash-pinned external method manifest are checked in both
 directions, so a locally repeated claim cannot admit a normalized or unresolved response type.

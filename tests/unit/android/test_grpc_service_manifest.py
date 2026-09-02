@@ -54,7 +54,7 @@ PARSER_OVERRIDE_MANIFEST = REPO_ROOT / "docs" / "android" / "grpc-runtime-parser
 EXTERNAL_METHOD_MANIFEST = (
     REPO_ROOT / "tests" / "fixtures" / "android" / "external_method_manifest.csv"
 )
-EXTERNAL_METHOD_MANIFEST_SHA256 = "83a9553bf95f11f28805b02df20887d61bd6c85906141cb0bc462d1ead7aee23"
+EXTERNAL_METHOD_MANIFEST_SHA256 = "411129064d2528b7ea108571ab382bd786055ed434209d6e733e13f130d9ebbd"
 LATEST_APK_GRPC_SIGNATURES = (
     REPO_ROOT / "tests" / "fixtures" / "android" / "latest_apk_grpc_signatures.csv"
 )
@@ -234,6 +234,16 @@ _EXPECTED_ORCHESTRATION_SIGNATURES = {
     "ListChatSessions": (
         f"{ORCHESTRATION_PACKAGE}.ListChatSessionsRequest",
         f"{ORCHESTRATION_PACKAGE}.ListChatSessionsResponse",
+        False,
+    ),
+    "GetChatSessionStatus": (
+        f"{ORCHESTRATION_PACKAGE}.GetChatSessionStatusRequest",
+        f"{ORCHESTRATION_PACKAGE}.GetChatSessionStatusResponse",
+        False,
+    ),
+    "CancelGeneration": (
+        f"{ORCHESTRATION_PACKAGE}.CancelGenerationRequest",
+        f"{ORCHESTRATION_PACKAGE}.CancelGenerationResponse",
         False,
     ),
     "ListChatTurns": (
@@ -440,7 +450,7 @@ def _inference_entries() -> list[dict[str, Any]]:
 def _external_method_entries() -> dict[str, dict[str, str]]:
     with EXTERNAL_METHOD_MANIFEST.open(encoding="utf-8", newline="") as stream:
         rows = list(csv.DictReader(stream))
-    assert len(rows) == 69
+    assert len(rows) == 71
     entries = {row["path"]: row for row in rows}
     assert len(entries) == len(rows)
     return entries
@@ -519,9 +529,9 @@ def test_adapter_paths_equal_generated_descriptor_with_no_omitted_exceptions() -
     entries = _manifest_entries()
     assert entries == []
     assert _adapter_paths() == _descriptor_paths()
-    assert len(_adapter_paths()) == 57
-    assert len(_descriptor_paths()) == 57
-    assert sum(path.startswith(f"/{ORCHESTRATION_SERVICE}/") for path in _descriptor_paths()) == 55
+    assert len(_adapter_paths()) == 59
+    assert len(_descriptor_paths()) == 59
+    assert sum(path.startswith(f"/{ORCHESTRATION_SERVICE}/") for path in _descriptor_paths()) == 57
     assert sum(path.startswith(f"/{SHARING_SERVICE}/") for path in _descriptor_paths()) == 2
 
     sharing_paths = {path for path in _adapter_paths() if path.startswith(f"/{SHARING_SERVICE}/")}
@@ -534,7 +544,7 @@ def test_adapter_paths_equal_generated_descriptor_with_no_omitted_exceptions() -
 
 def test_web_derived_signature_inferences_are_explicit_and_generated() -> None:
     entries = _inference_entries()
-    assert len(entries) == 16
+    assert len(entries) == 17
     assert all(
         set(entry) == {"path", "request_type", "response_type", "confidence", "evidence"}
         for entry in entries
@@ -566,7 +576,7 @@ def test_external_manifest_and_implemented_signature_inventory_are_bidirectional
     )
     external = _external_method_entries()
     signatures = _descriptor_signatures()
-    assert len(external) == 69
+    assert len(external) == 71
 
     for path, (request_type, response_type, cardinality) in signatures.items():
         row = external[path]
