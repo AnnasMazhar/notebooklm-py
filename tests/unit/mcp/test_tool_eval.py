@@ -31,8 +31,11 @@ pytest.importorskip("fastmcp")
 #: to ~36.0k). Move these DOWN as the surface gets leaner; a rise means
 #: description/param bloat that must be justified, not rubber-stamped.
 SCHEMA_CHAR_BUDGET = (
-    40_580  # total serialized inputSchema + description chars (current 40_556; +24 slack)
+    43_410  # total serialized inputSchema + description chars (current 43_386; +24 slack)
 )
+# Merge with main after #2292 (Play Books): 40_556 on main + 2_830 for this PR
+# (the pair's re-invoke protocol text, batch polling / queue states / timings,
+# the review's re-ask wording — itemised below) = 43_386; ratcheted to 43_410.
 # #2292 (Google Play Books sources) added two discrete-verb tools —
 # `source_list_play_books` and `source_add_play_book` — each with the
 # agent-facing description an LLM needs to use it (what Expert Intelligence is,

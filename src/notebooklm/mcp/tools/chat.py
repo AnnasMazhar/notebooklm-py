@@ -9,6 +9,15 @@ Thin adapters over the chat surface:
   same default the ``ask`` RPC has).
 * ``chat_configure`` drives ``_app.chat.execute_configure``. ``goal`` maps to the
   core's ``persona`` argument (a non-empty value selects the ``CUSTOM`` chat goal).
+* ``chat_start`` / ``chat_status`` are the watchdog-safe pair for slow
+  generations: ``chat_start`` detaches the ask into a server-owned task
+  (:mod:`notebooklm.mcp._chattasks`) and returns a ``task_id`` immediately;
+  ``chat_status`` polls it and returns the finished answer inline. Remote MCP
+  transports cut a call at ~60s to the first response byte (the watchdog
+  ``tools/_fileupload.py`` documents for uploads), which kills a blocking
+  ``chat_ask`` mid-generation — the re-invoke poll, not any keepalive, is the
+  load-bearing completion mechanism (same ADR-0024 shape as ``await_upload``,
+  same contract ``studio_generate``/``studio_status`` ship for studio work).
 
 Neither the ``ask`` RPC nor ``execute_configure`` emits progress events, so this
 module wires no :class:`~notebooklm._app.events.ProgressSink` — there is nothing
@@ -23,6 +32,7 @@ Both bodies wrap in :func:`mcp_errors`. This module imports NO ``click`` /
 from __future__ import annotations
 
 import asyncio
+import time
 from typing import Any, Literal
 
 from fastmcp import Context
@@ -32,11 +42,12 @@ from ..._app.chat import ChatModeChoice, ResponseLengthChoice
 from ..._app.notebooks import SUGGEST_SURFACE_MAP, SuggestSurface
 from ..._app.serialize import to_jsonable
 from ..._app.views import ask_result_view
-from ...exceptions import ValidationError
+from ...exceptions import RateLimitError, ValidationError
+from .._chattasks import ChatTaskCapacityError, compute_chat_task_key
 from .._coerce import coerce_list
 from .._confirm import READ_ONLY
-from .._context import get_client
-from .._errors import mcp_errors
+from .._context import get_chat_tasks, get_client
+from .._errors import mcp_errors, tool_error_payload
 from .._resolve import resolve_notebook, resolve_sources
 
 #: Reference fields kept in the default ("lite") ``chat_ask`` projection. The full
@@ -44,6 +55,69 @@ from .._resolve import resolve_notebook, resolve_sources
 #: ``passage_id`` / ``score`` — useful for deep citation tooling but pure context
 #: bloat for a typical agent, so they are dropped unless ``references="full"``.
 _LITE_REFERENCE_FIELDS = ("source_id", "citation_number", "cited_text")
+
+#: Ceiling on ids per ``chat_status`` call. The registry retains at most 256
+#: entries, so a legitimate batch is small; the cap keeps a hostile or runaway
+#: caller from turning one poll into unbounded per-id work.
+_MAX_STATUS_BATCH = 64
+
+
+def _entry_status_payload(entry: Any) -> dict[str, Any]:
+    """Project one :class:`~notebooklm.mcp._chattasks.ChatTaskEntry` onto the
+    ``chat_status`` wire vocabulary (shared by the single and batch shapes).
+
+    Timings ride the terminal states (``queued_s`` — submission → generation
+    start; ``generation_s`` — start → finish) so real-world concurrency can be
+    calibrated from ordinary usage.
+    """
+    if entry.done_at is None:
+        waiting = entry.started_at is None
+        return {
+            "status": "pending",
+            "task_id": entry.task_id,
+            "state": "queued" if waiting else "generating",
+            "waited_s": round(time.monotonic() - entry.created_at, 1),
+            "hint": (
+                "waiting for a generation slot — re-invoke chat_status in ~20-30s"
+                if waiting
+                else "the answer is still generating — re-invoke chat_status "
+                "with the same task_id in ~20-30s"
+            ),
+        }
+    timings = {
+        "queued_s": round((entry.started_at or entry.created_at) - entry.created_at, 1),
+        "generation_s": round(entry.done_at - (entry.started_at or entry.created_at), 1),
+    }
+    if entry.error is not None:
+        return {
+            "status": "failed",
+            "task_id": entry.task_id,
+            "error": tool_error_payload(entry.error),
+            **timings,
+            "hint": (
+                "the ask failed — a retriable error is worth one chat_start "
+                "retry with the same question (a retry re-runs the generation)"
+            ),
+        }
+    return {"status": "completed", "task_id": entry.task_id, **timings, **(entry.result or {})}
+
+
+def _ask_result_payload(ask_result: Any, references: str) -> dict[str, Any]:
+    """Serialize an ask result for the wire — shared by ``chat_ask`` and the
+    detached ``chat_start`` task so the two paths cannot drift.
+
+    The shared :func:`ask_result_view` projection (which already drops the
+    debug-only ``raw_response`` blob), minus the chunk-level reference detail
+    unless ``references="full"``. ``or []`` (not a get-default) so a null
+    ``references`` value is tolerated, not iterated.
+    """
+    payload = ask_result_view(ask_result)
+    if references == "lite":
+        payload["references"] = [
+            {k: ref[k] for k in _LITE_REFERENCE_FIELDS if ref.get(k) is not None}
+            for ref in (payload.get("references") or [])
+        ]
+    return payload
 
 
 def register(mcp: Any) -> None:
@@ -201,17 +275,9 @@ def register(mcp: Any) -> None:
                 ask_result, suggestions = None, None
 
             if ask_result is not None:
-                # Shared view: serialize + drop the debug-only ``raw_response`` blob
-                # (it just burns agent context) — identical on the REST chat route.
-                ask_payload = ask_result_view(ask_result)
-                if references == "lite":
-                    # ``or []`` (not a get-default) so a null ``references`` value is
-                    # tolerated, not iterated.
-                    ask_payload["references"] = [
-                        {k: ref[k] for k in _LITE_REFERENCE_FIELDS if ref.get(k) is not None}
-                        for ref in (ask_payload.get("references") or [])
-                    ]
-                payload.update(ask_payload)
+                # Shared view + reference projection (:func:`_ask_result_payload`) —
+                # identical on the REST chat route and the detached ``chat_start`` task.
+                payload.update(_ask_result_payload(ask_result, references))
             elif conversation_id is not None:
                 # Recall-only: echo the conversation we read so the caller can
                 # target it explicitly on a later turn (the ask path echoes its own).
@@ -226,6 +292,140 @@ def register(mcp: Any) -> None:
             if resolved_source_ids is not None:
                 payload["source_ids"] = resolved_source_ids
             return payload
+
+    @mcp.tool
+    async def chat_start(
+        ctx: Context,
+        notebook: str,
+        question: str,
+        conversation_id: str | None = None,
+        references: Literal["lite", "full"] = "lite",
+        source_ids: list[str] | str | None = None,
+    ) -> dict[str, Any]:
+        """Start a chat ask as a detached background task and return immediately.
+
+        The watchdog-safe way to ask when generation may run long (large/shared
+        notebooks routinely take 1–3 minutes, and remote MCP transports cut a
+        call at ~60s of silence — which kills a blocking ``chat_ask``
+        mid-generation). The ask runs server-side regardless of what happens to
+        this call; ``chat_status`` collects the answer. For questions expected
+        to answer quickly, ``chat_ask`` stays the one-call path.
+
+        Parameters mirror ``chat_ask``'s ask path (``history`` /
+        ``suggest_followups`` are ``chat_ask``-only). Returns one of:
+
+        * ``{"status": "started", "task_id": ...}`` — **call ``chat_status``
+          with this ``task_id`` in ~20–30s**; re-invoke while ``pending``.
+        * ``{"status": "already_running", "task_id": ...}`` — an identical ask
+          is still in flight; poll that ``task_id`` (no double generation).
+
+        A finished ask is never replayed: starting the same question again
+        re-asks and appends a new conversation turn, exactly like ``chat_ask``
+        (so an answer can't go stale after ``source_add`` / ``chat_configure``).
+        A finished payload stays pollable by its ``task_id`` for ~30 minutes,
+        then ``chat_status`` reports ``unknown``.
+        """
+        client = get_client(ctx)
+        with mcp_errors():
+            question = question.strip()
+            if not question:
+                raise ValidationError("chat_start needs a non-empty question.")
+            nb_id = await resolve_notebook(client, notebook)
+            # Same source-scoping contract as chat_ask: tolerant input shapes,
+            # resolved ONCE up front; omitted/empty stays None (=> all sources).
+            refs = coerce_list(source_ids)
+            resolved_source_ids = await resolve_sources(client, nb_id, refs) if refs else None
+            # Key on the RESOLVED inputs so retries dedupe however the caller
+            # spelled the notebook/source refs (see compute_chat_task_key).
+            key = compute_chat_task_key(
+                nb_id, question, resolved_source_ids, conversation_id, references
+            )
+
+            async def _run_ask() -> dict[str, Any]:
+                # Runs as a server-owned task (not a child of this request), so a
+                # transport cutting the start call cannot kill the generation.
+                ask_result = await client.chat.ask(
+                    nb_id,
+                    question,
+                    source_ids=resolved_source_ids,
+                    conversation_id=conversation_id,
+                )
+                payload: dict[str, Any] = {"notebook_id": nb_id}
+                payload.update(_ask_result_payload(ask_result, references))
+                if resolved_source_ids is not None:
+                    payload["source_ids"] = resolved_source_ids
+                return payload
+
+            try:
+                entry, how = get_chat_tasks(ctx).start(key, _run_ask)
+            except ChatTaskCapacityError as exc:
+                # Nothing about the arguments is wrong and the same call succeeds
+                # once a slot frees — so it must project as a RETRIABLE category
+                # (RATE_LIMITED: "back off and retry"), not VALIDATION, which the
+                # guide tells agents to stop on.
+                raise RateLimitError(str(exc)) from exc
+            return {
+                "status": "started" if how == "created" else "already_running",
+                "task_id": entry.task_id,
+                "notebook_id": nb_id,
+                "hint": (
+                    "the answer usually lands within 1-3 minutes — call chat_status "
+                    "with this task_id in ~20-30s, and re-invoke it while it reports "
+                    "pending"
+                ),
+            }
+
+    @mcp.tool(annotations=READ_ONLY)
+    async def chat_status(ctx: Context, task_id: str | list[str]) -> dict[str, Any]:
+        """Poll detached ask(s) started by ``chat_start``; answers return inline.
+
+        ``task_id`` accepts one id, a list, or a comma-separated string — **poll
+        a whole batch in ONE call** and re-invoke every ~20–30s while anything
+        is pending. Per-task statuses:
+
+        * ``pending`` (``state``: ``queued`` waiting for a generation slot, or
+          ``generating``) — re-invoke; polling never restarts a generation.
+        * ``completed`` — the full ``chat_ask``-shaped payload, plus
+          ``queued_s`` / ``generation_s`` timings.
+        * ``failed`` — ``error: {code, message, retriable, ...}``; a retriable
+          code is worth one ``chat_start`` retry (which re-runs the generation).
+        * ``unknown`` — no such task, or its result expired; ``chat_start``
+          again.
+
+        A single string id returns that task's status dict; a list (even of
+        one) returns ``{"tasks": [...]}`` in input order. At most 64 ids per
+        call.
+        """
+        with mcp_errors():
+            registry = get_chat_tasks(ctx)
+            ids = coerce_list(task_id)
+            if not ids:
+                raise ValidationError("chat_status needs at least one task_id.")
+            if len(ids) > _MAX_STATUS_BATCH:
+                raise ValidationError(
+                    f"chat_status accepts at most {_MAX_STATUS_BATCH} task_ids per call "
+                    f"(got {len(ids)}); poll in smaller batches."
+                )
+
+            def _one(tid: str) -> dict[str, Any]:
+                entry = registry.status(tid)
+                if entry is None:
+                    return {
+                        "status": "unknown",
+                        "task_id": tid,
+                        "hint": (
+                            "no such task (or its result expired) — call chat_start "
+                            "again with the original question"
+                        ),
+                    }
+                return _entry_status_payload(entry)
+
+            if isinstance(task_id, str) and len(ids) == 1:
+                # Tuple-unpack instead of ids[0]: the positional-indexing ratchet
+                # (ADR-0011 / #1491) flags single-level subscripts wholesale.
+                (only_id,) = ids
+                return _one(only_id)
+            return {"tasks": [_one(tid) for tid in ids]}
 
     @mcp.tool
     async def chat_configure(
