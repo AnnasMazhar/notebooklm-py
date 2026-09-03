@@ -14,6 +14,12 @@ NIGHTLY_WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows"
 VERIFY_PACKAGE_WORKFLOW = (
     Path(__file__).resolve().parents[2] / ".github" / "workflows" / "verify-package.yml"
 )
+PUBLISH_WORKFLOW = Path(__file__).resolve().parents[2] / ".github" / "workflows" / "publish.yml"
+TESTPYPI_PUBLISH_WORKFLOW = (
+    Path(__file__).resolve().parents[2] / ".github" / "workflows" / "testpypi-publish.yml"
+)
+SUPPORTED_OSES = ["ubuntu-latest", "macos-latest", "windows-latest"]
+SUPPORTED_PYTHONS = ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
 
 def _step(job: dict[str, object], name: str) -> dict[str, object]:
@@ -23,7 +29,7 @@ def _step(job: dict[str, object], name: str) -> dict[str, object]:
 
 
 def test_test_matrix_is_independent_and_preserves_ci_contract() -> None:
-    """The required matrix covers every Python plus one secondary-OS cell."""
+    """The required PR matrix covers every Python on Linux plus one 3.12 cell per secondary OS."""
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     jobs = workflow["jobs"]
 
@@ -34,52 +40,34 @@ def test_test_matrix_is_independent_and_preserves_ci_contract() -> None:
     assert jobs["test"]["strategy"]["fail-fast"] is False
 
     matrix = jobs["test"]["strategy"]["matrix"]
-    assert matrix == {
-        "include": [
+    # The full 3-OS by 5-Python product is nightly's job (see
+    # ``test_nightly_runs_full_sha_pinned_compatibility_matrix``); PRs run the
+    # reduced 7-cell matrix so the suite is not multiplied fifteen-fold per push.
+    assert set(matrix) == {"include"}
+    assert matrix["include"] == [
+        *(
             {
                 "os": "ubuntu-latest",
-                "python-version": "3.10",
-                "canonical": False,
+                "python-version": python,
+                "canonical": python == "3.12",
                 "windows_playwright": False,
-            },
-            {
-                "os": "ubuntu-latest",
-                "python-version": "3.11",
-                "canonical": False,
-                "windows_playwright": False,
-            },
-            {
-                "os": "ubuntu-latest",
-                "python-version": "3.12",
-                "canonical": True,
-                "windows_playwright": False,
-            },
-            {
-                "os": "ubuntu-latest",
-                "python-version": "3.13",
-                "canonical": False,
-                "windows_playwright": False,
-            },
-            {
-                "os": "ubuntu-latest",
-                "python-version": "3.14",
-                "canonical": False,
-                "windows_playwright": False,
-            },
-            {
-                "os": "macos-latest",
-                "python-version": "3.12",
-                "canonical": False,
-                "windows_playwright": False,
-            },
-            {
-                "os": "windows-latest",
-                "python-version": "3.12",
-                "canonical": False,
-                "windows_playwright": True,
-            },
-        ]
-    }
+            }
+            for python in SUPPORTED_PYTHONS
+        ),
+        {
+            "os": "macos-latest",
+            "python-version": "3.12",
+            "canonical": False,
+            "windows_playwright": False,
+        },
+        {
+            "os": "windows-latest",
+            "python-version": "3.12",
+            "canonical": False,
+            "windows_playwright": True,
+        },
+    ]
+    assert {cell["os"] for cell in matrix["include"]} == set(SUPPORTED_OSES)
 
 
 def test_pr_matrix_runs_once_without_coverage_and_canonical_owns_reality() -> None:
@@ -152,6 +140,64 @@ def test_pr_matrix_runs_once_without_coverage_and_canonical_owns_reality() -> No
     assert "-m requires_playwright" in smoke_command
     assert "-n 0" in smoke_command
     assert "--no-cov" in smoke_command
+
+
+def test_nightly_runs_full_sha_pinned_compatibility_matrix() -> None:
+    """Nightly owns the full 3-OS by 5-Python ordinary test matrix (PRs run a reduced one)."""
+    workflow = yaml.safe_load(NIGHTLY_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["compatibility"]
+
+    assert job["needs"] == "resolve-branch"
+    assert job["if"] == (
+        "needs.resolve-branch.outputs.is_standard == 'true' && "
+        "(github.event_name == 'schedule' || inputs.run_compatibility)"
+    )
+    assert job["runs-on"] == "${{ matrix.os }}"
+    assert job["strategy"] == {
+        "fail-fast": False,
+        "matrix": {
+            "os": SUPPORTED_OSES,
+            "python-version": SUPPORTED_PYTHONS,
+        },
+    }
+    assert "environment" not in job
+    assert "secrets." not in str(job)
+
+    workflow_text = NIGHTLY_WORKFLOW.read_text(encoding="utf-8")
+    # PyYAML parses a bare ``on`` key as boolean ``True``.
+    triggers = workflow.get("on", workflow.get(True))
+    dispatch_inputs = triggers["workflow_dispatch"]["inputs"]
+    assert dispatch_inputs["run_compatibility"]["type"] == "boolean"
+    # Manual dispatches (release branches) default to the full matrix because the
+    # PR gate only runs the reduced 7-cell one.
+    assert dispatch_inputs["run_compatibility"]["default"] is True
+    assert "run_compatibility:" in workflow_text
+
+    checkout = next(
+        step for step in job["steps"] if str(step.get("uses", "")).startswith("actions/checkout@")
+    )
+    assert checkout["with"] == {
+        "ref": "${{ needs.resolve-branch.outputs.sha }}",
+        "fetch-depth": 1,
+        "persist-credentials": False,
+    }
+
+    setup_python = _step(job, "Set up Python ${{ matrix.python-version }}")
+    assert setup_python["with"]["python-version"] == "${{ matrix.python-version }}"
+
+    install_command = str(_step(job, "Install compatibility dependencies")["run"])
+    assert "uv sync --frozen" in install_command
+    for extra in {"browser", "dev", "markdown", "mcp", "server", "impersonate", "cookies"}:
+        assert f"--extra {extra}" in install_command
+
+    import_command = str(_step(job, "Assert native optional dependencies import")["run"])
+    assert "import curl_cffi, rookie_cookies" in import_command
+
+    suite_command = str(_step(job, "Run compatibility tests without coverage")["run"])
+    assert "-n auto" in suite_command
+    assert "--dist loadgroup" in suite_command
+    assert "not repo_lint and not requires_playwright and not requires_chromium" in suite_command
+    assert "--no-cov" in suite_command
 
 
 def test_nightly_coverage_is_sha_pinned_secret_free_and_enforces_floors() -> None:
@@ -249,9 +295,8 @@ def test_nightly_e2e_runs_explicit_web_and_android_backends() -> None:
 
     assert "${{ matrix.backend }}" in job["name"]
     assert job["strategy"]["matrix"]["include"] == [
-        {"os": "ubuntu-latest", "backend": "web", "generation_notebook": "shared"},
-        {"os": "windows-latest", "backend": "web", "generation_notebook": "unused"},
-        {"os": "ubuntu-latest", "backend": "android", "generation_notebook": "scratch"},
+        {"os": "windows-latest", "backend": "web", "generation_notebook": "shared"},
+        {"os": "windows-latest", "backend": "android", "generation_notebook": "scratch"},
     ]
     assert job["env"]["NOTEBOOKLM_BACKEND"] == "${{ matrix.backend }}"
     assert "${{ matrix.backend }}" in job["concurrency"]["group"]
@@ -313,8 +358,13 @@ def test_nightly_e2e_runs_explicit_web_and_android_backends() -> None:
     assert "unset E2E_ENFORCE_COVERAGE_FLOOR" in retry_command
     assert "tests/e2e --last-failed --last-failed-no-failures=none" in retry_command
 
+    primary_command = str(primary["run"])
+    assert 'tests/e2e -m "not variants"' in primary_command
+    assert "readonly and not variants" not in primary_command
+
     curl_smoke = _step(job, "curl_cffi transport smoke (live, minimal)")
     assert "matrix.backend == 'web'" in str(curl_smoke["if"])
+    assert "ubuntu-latest" not in str(curl_smoke["if"])
     assert "NOTEBOOKLM_GENERATION_NOTEBOOK_ID" not in curl_smoke["env"]
 
 
@@ -345,6 +395,49 @@ def test_verify_package_live_checks_published_wheel_android_and_keeps_web_e2e() 
     assert "NOTEBOOKLM_BACKEND" not in job.get("env", {})
     assert "NOTEBOOKLM_BACKEND" not in web_e2e["env"]
     assert 'pytest tests/e2e -m "not variants"' in str(web_e2e["run"])
+
+
+@pytest.mark.parametrize("workflow_path", [PUBLISH_WORKFLOW, TESTPYPI_PUBLISH_WORKFLOW])
+def test_release_publish_smokes_install_impersonate_extra(workflow_path: Path) -> None:
+    """Published-wheel unit smoke must install every CI-required transport."""
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["build-and-test"]
+    install = str(_step(job, "Install built wheel + release-smoke extras in a clean venv")["run"])
+
+    assert '"${WHEEL}[browser,dev,markdown,impersonate]"' in install
+
+
+def test_pr_and_release_workflows_verify_clean_base_wheel() -> None:
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    quality = workflow["jobs"]["quality"]
+    pr_smoke = str(_step(quality, "Verify built base wheel without browser extra")["run"])
+    assert "uv build --wheel" in pr_smoke
+    assert "scripts/check_base_wheel.py" in pr_smoke
+
+    for workflow_path in (PUBLISH_WORKFLOW, TESTPYPI_PUBLISH_WORKFLOW):
+        release = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+        job = release["jobs"]["build-and-test"]
+        smoke = _step(job, "Verify built base wheel without browser extra")
+        assert "scripts/check_base_wheel.py" in str(smoke["run"])
+        assert job["steps"].index(smoke) > job["steps"].index(
+            _step(job, "Upload distribution artifacts")
+        )
+
+
+def test_verify_package_downloads_exact_wheel_before_clean_base_smoke() -> None:
+    workflow = yaml.safe_load(VERIFY_PACKAGE_WORKFLOW.read_text(encoding="utf-8"))
+    job = workflow["jobs"]["verify"]
+    download = _step(job, "Download exact published wheel for base-install smoke")
+    smoke = _step(job, "Verify published base wheel without browser extra")
+
+    assert "pip download" in str(download["run"])
+    assert "--no-deps" in str(download["run"])
+    assert "--only-binary=:all:" in str(download["run"])
+    assert "published-dist/notebooklm_py-*.whl" in str(smoke["run"])
+    assert "scripts/check_base_wheel.py" in str(smoke["run"])
+    assert job["steps"].index(smoke) < job["steps"].index(
+        _step(job, "Sync locked deps + non-cookies extras")
+    )
 
 
 def test_repository_lint_is_a_bounded_manual_only_job() -> None:
