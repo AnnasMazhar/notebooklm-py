@@ -20,7 +20,7 @@ This module imports NO ``click`` / ``rich`` / ``cli``.
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from fastmcp import Context
 from fastmcp.server.dependencies import get_http_request
@@ -251,8 +251,8 @@ def register(mcp: Any) -> None:
         a broken import's ghost row). Pass ``label`` (name or ID) to restrict to that
         label's members; composes with ``status``.
         """
-        client = get_client(ctx)
         with mcp_errors():
+            client = await get_client(ctx)
             nb_id = await resolve_notebook(client, notebook)
             sources = await listing_core.fetch_sources(
                 client, nb_id, label_filter=label, label_resolver=labels_core.resolve_label_id
@@ -296,7 +296,6 @@ def register(mcp: Any) -> None:
         ``detail="full"`` (ignored for ``summary``). Prefer ``chat_ask`` for
         querying large sources rather than pulling the whole body.
         """
-        client = get_client(ctx)
         with mcp_errors():
             # Validate windowing args unconditionally — a bad value must error even
             # in ``summary`` mode (where they are ignored), never silently pass.
@@ -306,6 +305,7 @@ def register(mcp: Any) -> None:
                 raise ValidationError(f"max_chars must be >= 0; got {max_chars}")
             if offset < 0:
                 raise ValidationError(f"offset must be >= 0; got {offset}")
+            client = await get_client(ctx)
             nb_id = await resolve_notebook(client, notebook)
             src_id = await resolve_source(client, nb_id, source)
 
@@ -367,8 +367,8 @@ def register(mcp: Any) -> None:
         ctx: Context, notebook: str, source: str, new_title: str
     ) -> dict[str, Any]:
         """Rename a source. Accepts a notebook/source name or ID."""
-        client = get_client(ctx)
         with mcp_errors():
+            client = await get_client(ctx)
             nb_id = await resolve_notebook(client, notebook)
             src_id = await resolve_source(client, nb_id, source)
             result = await mut_core.execute_source_rename(
@@ -390,8 +390,8 @@ def register(mcp: Any) -> None:
         ``needs_confirmation`` preview of the resolved source without deleting;
         call again with ``confirm=True`` to perform the delete.
         """
-        client = get_client(ctx)
         with mcp_errors():
+            client = await get_client(ctx)
             nb_id = await resolve_notebook(client, notebook)
             src_id = await resolve_source(client, nb_id, source)
             if not confirm:
@@ -440,7 +440,6 @@ def register(mcp: Any) -> None:
         an input error, distinct from a resolved source the backend reports missing /
         failed / slow (which lands in a bucket).
         """
-        client = get_client(ctx)
         with mcp_errors():
             # Non-finite + range guards (shared with the REST route so the two
             # can't drift); fail-fast before any I/O.
@@ -466,6 +465,7 @@ def register(mcp: Any) -> None:
                     f"got {len(coerced)}. Wait on a smaller subset."
                 )
 
+            client = await get_client(ctx)
             nb_id = await resolve_notebook(client, notebook)
 
             if coerced is not None:
@@ -579,7 +579,6 @@ def register(mcp: Any) -> None:
         single-mode named inputs (incl. ``bytes_base64``/``filename``/``wait``) are not
         valid with ``urls``; ``allow_internal`` applies to every entry.
         """
-        client = get_client(ctx)
         with mcp_errors():
             # Mode selection (fail-closed) BEFORE any notebook I/O, so a malformed
             # call never reaches notebooks.list. Exactly one of source_type / urls.
@@ -590,7 +589,9 @@ def register(mcp: Any) -> None:
             if urls is None and source_type is None:
                 raise ValidationError("provide 'source_type' (single add) or 'urls' (batch)")
             if urls is not None:
-                # Batch mode: reject single-mode scalars, then resolve + dispatch.
+                # Batch mode: reject every client-independent input error before
+                # joining the lazy open. A malformed call must return VALIDATION
+                # immediately even when authentication is slow or broken.
                 if wait:
                     raise ValidationError(
                         "'wait' is single-mode only; batch 'urls' adds are async — "
@@ -615,6 +616,7 @@ def register(mcp: Any) -> None:
                         f"urls must contain at most {MAX_BATCH_URLS} entries; got {len(urls)}. "
                         "Split into multiple source_add calls."
                     )
+                client = await get_client(ctx)
                 nb_id = await resolve_notebook(client, notebook)
                 return await _add_url_batch(client, nb_id, urls, allow_internal=allow_internal)
 
@@ -625,10 +627,9 @@ def register(mcp: Any) -> None:
             if source_type is None:  # pragma: no cover - unreachable given the mode guards
                 raise ValidationError("internal error: source_type unexpectedly None")
 
-            # The drive-mime and content-scalar-exclusivity checks below run BEFORE
-            # resolve_notebook, so these malformed calls never pay a notebook
-            # round-trip. (Content *presence* + the YouTube-host guard still run
-            # later, during dispatch — that ordering is unchanged by #1696.)
+            # The drive-mime, content-scalar-exclusivity, content-presence, and
+            # YouTube-host checks below run BEFORE the lazy open and
+            # resolve_notebook, so malformed calls pay no auth/network round-trip.
             #
             # ``mime_type`` deliberately stays a free-text ``str`` (NOT a ``Literal``):
             # it is DUAL-USE — for ``source_type="file"`` it carries an arbitrary,
@@ -663,6 +664,36 @@ def register(mcp: Any) -> None:
             # payload never pays a notebook round-trip (see _decode_upload_b64).
             raw = _decode_upload_b64(bytes_base64) if bytes_base64 is not None else None
 
+            # Finish the source-type-specific local validation before awaiting the
+            # lazy client. Otherwise expired credentials can mask an immediately
+            # actionable VALIDATION error as AUTH/NETWORK.
+            file_transfer = None
+            content = None
+            if raw is None and source_type == "file":
+                file_transfer = get_file_transfer(ctx)
+                if file_transfer is not None:
+                    # Remote connector: the upload is a separate request, so there
+                    # is no source for this call to wait on yet.
+                    if wait:
+                        raise ValidationError(
+                            "source_add cannot wait on a remote file signed-URL upload (the "
+                            "upload is a separate step); add without wait, then source_wait, "
+                            "or pass bytes_base64 for a tiny file"
+                        )
+                elif _is_http_transport():
+                    raise ValidationError(
+                        "remote file transfer is not configured; set "
+                        "NOTEBOOKLM_MCP_PUBLIC_URL on the server to enable it"
+                    )
+                else:
+                    content = _select_content(source_type, url=url, text=text, path=path)
+            elif source_type == "drive":
+                if not document_id:
+                    raise ValidationError("source_type 'drive' requires 'document_id'")
+            elif raw is None:
+                content = _select_content(source_type, url=url, text=text, path=path)
+
+            client = await get_client(ctx)
             nb_id = await resolve_notebook(client, notebook)
 
             # In-channel bytes file-add (any transport): decode + spool + add, then
@@ -684,35 +715,20 @@ def register(mcp: Any) -> None:
                     src, to_jsonable(add_core.SourceAddResult(source=src)), notebook_id=nb_id
                 )
 
-            if source_type == "file":
-                cfg = get_file_transfer(ctx)
-                if cfg is not None:
-                    # Remote connector: broker a signed upload URL (the server path
-                    # is unreachable). A supplied `path` is accepted, not opened —
-                    # its basename seeds the default title. There is no source yet to
-                    # wait on — a caller wanting add+wait must use bytes_base64.
-                    if wait:
-                        raise ValidationError(
-                            "source_add cannot wait on a remote file signed-URL upload (the "
-                            "upload is a separate step); add without wait, then source_wait, "
-                            "or pass bytes_base64 for a tiny file"
-                        )
-                    return _broker_upload(cfg, nb_id, title=title, mime_type=mime_type, path=path)
-                if _is_http_transport():
-                    raise ValidationError(
-                        "remote file transfer is not configured; set "
-                        "NOTEBOOKLM_MCP_PUBLIC_URL on the server to enable it"
-                    )
-                # stdio: fall through to the existing local-path behavior below.
+            if file_transfer is not None:
+                # Remote connector: broker a signed upload URL (the server path
+                # is unreachable). A supplied `path` is accepted, not opened —
+                # its basename seeds the default title.
+                return _broker_upload(
+                    file_transfer, nb_id, title=title, mime_type=mime_type, path=path
+                )
 
             if source_type == "drive":
-                if not document_id:
-                    raise ValidationError("source_type 'drive' requires 'document_id'")
                 drive_result = await mut_core.execute_source_add_drive(
                     client,
                     mut_core.SourceAddDrivePlan(
                         notebook_id=nb_id,
-                        file_id=document_id,
+                        file_id=cast("str", document_id),
                         # Non-None + a valid choice, guaranteed by _validate_drive_mime above.
                         mime_type=mime_type,  # type: ignore[arg-type]
                         title=title or "",
@@ -735,7 +751,8 @@ def register(mcp: Any) -> None:
                     requested_title=title,
                 )
 
-            content = _select_content(source_type, url=url, text=text, path=path)
+            if content is None:  # pragma: no cover - raw/drive/remote branches returned above
+                raise ValidationError("internal error: source content unexpectedly missing")
             src = await _add_one(
                 client,
                 nb_id,
