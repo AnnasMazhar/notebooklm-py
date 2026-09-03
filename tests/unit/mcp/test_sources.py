@@ -969,6 +969,37 @@ async def test_source_delete_bulk_confirm_does_not_expand_past_previewed_ids(
     mock_client.sources.delete_many.assert_awaited_once_with(NB_ID, [SRC_ID])
 
 
+async def test_source_delete_bulk_confirm_rejects_title_that_can_retarget(
+    mcp_call, mock_client
+) -> None:
+    """Confirmation must submit the canonical ids returned by the preview."""
+    mock_client.sources.list = AsyncMock(return_value=[FakeSource(id=SRC_ID, title="Report")])
+    mock_client.sources.delete_many = AsyncMock(return_value=None)
+
+    preview = await mcp_call(
+        "source_delete",
+        {"notebook": NB_ID, "sources": ["Report"]},
+    )
+    assert preview.structured_content["preview"]["sources"] == [
+        {"source_id": SRC_ID, "title": "Report"}
+    ]
+
+    # The same mutable title now identifies a different source. Reject it before
+    # re-listing rather than silently deleting a source that was never previewed.
+    mock_client.sources.list.return_value = [
+        FakeSource(id=SRC_ID, title="Renamed"),
+        FakeSource(id=SRC2_ID, title="Report"),
+    ]
+    with pytest.raises(ToolError) as ei:
+        await mcp_call(
+            "source_delete",
+            {"notebook": NB_ID, "sources": ["Report"], "confirm": True},
+        )
+    assert "canonical source ids" in str(ei.value).lower()
+    mock_client.sources.list.assert_awaited_once_with(NB_ID)
+    mock_client.sources.delete_many.assert_not_called()
+
+
 async def test_source_delete_bulk_network_error_is_not_status_deleted(
     mcp_call, mock_client
 ) -> None:

@@ -33,6 +33,7 @@ from ..._app import source_content as content_core
 from ..._app import source_listing as listing_core
 from ..._app import source_mutations as mut_core
 from ..._app import source_wait as wait_core
+from ..._app.resolve import FULL_ID_PATTERN, validate_id
 from ..._app.serialize import to_jsonable
 from ..._app.source_batch import MAX_BATCH_URLS, batch_item_is_fatal
 from ..._app.views import source_view as _source_view
@@ -419,6 +420,13 @@ def register(mcp: Any) -> None:
                     "(or a single 'source'); omitting both would re-list and can "
                     "delete sources that were never previewed"
                 )
+            if confirm and coerced is not None:
+                coerced = [validate_id(ref, "source") for ref in coerced]
+                if any(FULL_ID_PATTERN.fullmatch(ref) is None for ref in coerced):
+                    raise ValidationError(
+                        "confirm=True requires canonical source ids returned by the preview; "
+                        "names and prefixes can resolve to different sources"
+                    )
 
             # Fast-path: single-id ``source=`` keeps the LEGACY wire shape
             # (``status`` + ``source_id`` + ``notebook_id``) so existing
